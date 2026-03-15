@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HomeLab SIEM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg0:       #080c10;
+  --bg1:       #0d1117;
+  --bg2:       #141b24;
+  --bg3:       #1c2533;
+  --line:      #1e2d3d;
+  --text:      #c9d5e0;
+  --muted:     #4a6070;
+  --accent:    #00d9ff;
+  --green:     #3ddc97;
+  --yellow:    #f7c94b;
+  --orange:    #ff8c42;
+  --red:       #ff4757;
+  --crit:      #e74c3c;
+  --sidebar-w: 240px;
+  --topbar-h:  60px;
+  --font-ui:   'Syne', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg0);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-rows: var(--topbar-h) 1fr;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Topbar ── */
+.topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 28px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--line);
+  z-index: 100;
+}
+.topbar-logo {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  color: var(--accent);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.topbar-logo span { color: var(--text); }
+.topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.live-badge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  color: var(--green);
+  text-transform: uppercase;
+}
+.dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+#clock {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  background: var(--bg1);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-top: 24px;
+}
+.nav-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 16px 24px 8px;
+  white-space: nowrap;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: color .15s, background .15s, border-color .15s;
+  white-space: nowrap;
+  user-select: none;
+  min-height: 48px;
+}
+.nav-item:hover { color: var(--text); background: var(--bg2); }
+.nav-item.active {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  background: rgba(0,217,255,.07);
+}
+.nav-icon { font-size: 16px; width: 22px; text-align: center; flex-shrink: 0; }
+
+/* ── Main ── */
+.main {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 32px 36px;
+  background: var(--bg0);
+}
+
+.tab-section { display: none; }
+.tab-section.active { display: block; }
+
+.page-header {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.page-title { font-size: 22px; font-weight: 800; color: var(--text); }
+.page-sub   { font-size: 12px; font-family: var(--font-mono); color: var(--muted); }
+
+/* ── KPI grid ── */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.kpi {
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 22px 26px;
+}
+.kpi.crit { border-top: 3px solid var(--crit); }
+.kpi.high { border-top: 3px solid var(--red); }
+.kpi.med  { border-top: 3px solid var(--orange); }
+.kpi.ok   { border-top: 3px solid var(--accent); }
+.kpi-label {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 10px;
+}
+.kpi-value {
+  font-size: 42px; font-weight: 800;
+  line-height: 1; font-family: var(--font-mono);
+  margin-bottom: 6px;
+}
+.kpi.crit .kpi-value { color: var(--crit); }
+.kpi.high .kpi-value { color: var(--red); }
+.kpi.med  .kpi-value { color: var(--orange); }
+.kpi.ok   .kpi-value { color: var(--accent); }
+.kpi-sub { font-size: 12px; color: var(--muted); font-family: var(--font-mono); }
+
+/* ── Charts ── */
+.charts-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.bottom-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.card {
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 22px 26px;
+}
+.card-title {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 18px;
+}
+.chart-wrap { position: relative; height: 230px; }
+
+/* ── Table card ── */
+.table-card {
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 28px;
+}
+.table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--line);
+  gap: 16px;
+}
+.table-header .card-title { margin: 0; }
+.filter-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.filter-btn {
+  font-family: var(--font-mono);
+  font-size: 11px; font-weight: 700;
+  padding: 5px 14px; border-radius: 4px;
+  cursor: pointer; border: 1px solid var(--line);
+  background: transparent; color: var(--muted);
+  letter-spacing: .06em; transition: all .15s;
+  white-space: nowrap;
+}
+.filter-btn:hover { color: var(--text); border-color: var(--muted); }
+.filter-btn.active              { background: var(--accent);  border-color: var(--accent);  color: var(--bg0); }
+.filter-btn.sev-critical.active { background: var(--crit);    border-color: var(--crit);    color: #fff; }
+.filter-btn.sev-high.active     { background: var(--red);     border-color: var(--red);     color: #fff; }
+.filter-btn.sev-medium.active   { background: var(--orange);  border-color: var(--orange);  color: #fff; }
+.filter-btn.sev-low.active      { background: var(--yellow);  border-color: var(--yellow);  color: #111; }
+
+table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 13px; }
+thead th {
+  text-align: left; padding: 11px 18px;
+  font-size: 10px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--muted);
+  background: var(--bg1); border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+tbody tr { border-bottom: 1px solid var(--line); transition: background .1s; }
+tbody tr:hover { background: var(--bg3); }
+tbody tr:last-child { border-bottom: none; }
+td { padding: 12px 18px; vertical-align: middle; }
+.td-time   { color: var(--muted); white-space: nowrap; width: 175px; }
+.td-source { color: var(--accent); white-space: nowrap; width: 140px; }
+.td-cat    { white-space: nowrap; width: 100px; }
+.td-raw    { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); max-width: 600px; }
+
+/* ── Badges ── */
+.badge {
+  display: inline-block; padding: 3px 9px;
+  border-radius: 4px; font-size: 10px; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
+}
+.badge-CRITICAL { background: rgba(231,76,60,.2);   color: var(--crit);   border: 1px solid rgba(231,76,60,.35); }
+.badge-HIGH     { background: rgba(255,71,87,.18);  color: var(--red);    border: 1px solid rgba(255,71,87,.3); }
+.badge-MEDIUM   { background: rgba(255,140,66,.18); color: var(--orange); border: 1px solid rgba(255,140,66,.3); }
+.badge-LOW      { background: rgba(247,201,75,.15); color: var(--yellow); border: 1px solid rgba(247,201,75,.25); }
+.badge-auth     { background: rgba(0,217,255,.1);   color: var(--accent); border: 1px solid rgba(0,217,255,.2); }
+.badge-web      { background: rgba(61,220,151,.1);  color: var(--green);  border: 1px solid rgba(61,220,151,.2); }
+.badge-kernel   { background: rgba(247,201,75,.1);  color: var(--yellow); border: 1px solid rgba(247,201,75,.2); }
+.badge-syslog   { background: rgba(74,96,112,.2);   color: var(--muted);  border: 1px solid rgba(74,96,112,.3); }
+.badge-generic  { background: rgba(74,96,112,.12);  color: var(--muted);  border: 1px solid rgba(74,96,112,.2); }
+
+.rule-id { color: var(--accent); font-family: var(--font-mono); font-size: 12px; white-space: nowrap; }
+.mitre {
+  font-family: var(--font-mono); font-size: 11px;
+  background: rgba(0,217,255,.08); border: 1px solid rgba(0,217,255,.15);
+  color: var(--accent); padding: 2px 8px; border-radius: 4px; white-space: nowrap;
+}
+
+/* ── Top IPs ── */
+.ip-bar-wrap { padding-top: 4px; }
+.ip-row {
+  display: flex; align-items: center;
+  gap: 14px; margin-bottom: 14px;
+  font-family: var(--font-mono); font-size: 12px;
+}
+.ip-addr  { width: 140px; color: var(--text); flex-shrink: 0; }
+.ip-bar-bg { flex: 1; height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+.ip-bar-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width .6s ease; }
+.ip-count { color: var(--muted); width: 40px; text-align: right; flex-shrink: 0; }
+
+.empty {
+  text-align: center; padding: 48px 24px;
+  color: var(--muted); font-family: var(--font-mono); font-size: 13px;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg1); }
+::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="topbar">
+    <div class="topbar-logo">HomeLab <span>SIEM</span></div>
+    <div class="topbar-right">
+      <div class="live-badge"><div class="dot"></div> Live</div>
+      <div id="clock"></div>
+    </div>
+  </header>
+
+  <nav class="sidebar">
+    <div class="nav-section-label">Monitor</div>
+    <div class="nav-item active" onclick="showTab('overview', this)">
+      <span class="nav-icon">⬡</span> Overview
+    </div>
+    <div class="nav-item" onclick="showTab('alerts', this)">
+      <span class="nav-icon">⚠</span> Alerts
+    </div>
+    <div class="nav-item" onclick="showTab('events', this)">
+      <span class="nav-icon">≡</span> Events
+    </div>
+    <div class="nav-section-label">Config</div>
+    <div class="nav-item" onclick="showTab('rules', this)">
+      <span class="nav-icon">◈</span> Rules
+    </div>
+  </nav>
+
+  <main class="main">
+
+    <!-- OVERVIEW -->
+    <div id="tab-overview" class="tab-section active">
+      <div class="page-header">
+        <div class="page-title">Overview</div>
+        <div class="page-sub">Last 24 hours</div>
+      </div>
+      <div class="kpi-grid">
+        <div class="kpi crit">
+          <div class="kpi-label">Critical</div>
+          <div class="kpi-value" id="kpi-critical">–</div>
+          <div class="kpi-sub">alerts</div>
+        </div>
+        <div class="kpi high">
+          <div class="kpi-label">High</div>
+          <div class="kpi-value" id="kpi-high">–</div>
+          <div class="kpi-sub">alerts</div>
+        </div>
+        <div class="kpi med">
+          <div class="kpi-label">Medium</div>
+          <div class="kpi-value" id="kpi-medium">–</div>
+          <div class="kpi-sub">alerts</div>
+        </div>
+        <div class="kpi ok">
+          <div class="kpi-label">Total Events</div>
+          <div class="kpi-value" id="kpi-events">–</div>
+          <div class="kpi-sub">ingested</div>
+        </div>
+      </div>
+      <div class="charts-row">
+        <div class="card">
+          <div class="card-title">Events per hour — last 24h</div>
+          <div class="chart-wrap"><canvas id="chartTimeline"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Events by category</div>
+          <div class="chart-wrap"><canvas id="chartCat"></canvas></div>
+        </div>
+      </div>
+      <div class="bottom-row">
+        <div class="card">
+          <div class="card-title">Recent alerts</div>
+          <table>
+            <thead><tr><th>Time</th><th>Rule</th><th>Severity</th><th>Event ID</th></tr></thead>
+            <tbody id="overviewAlertsTbody"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="card">
+          <div class="card-title">Top source IPs</div>
+          <div class="ip-bar-wrap" id="topIps"><div class="empty">Loading…</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ALERTS -->
+    <div id="tab-alerts" class="tab-section">
+      <div class="page-header"><div class="page-title">Alerts</div></div>
+      <div class="table-card">
+        <div class="table-header">
+          <div class="card-title">All alerts</div>
+          <div class="filter-row">
+            <button class="filter-btn active"       onclick="filterAlerts(null,this)">All</button>
+            <button class="filter-btn sev-critical" onclick="filterAlerts('CRITICAL',this)">Critical</button>
+            <button class="filter-btn sev-high"     onclick="filterAlerts('HIGH',this)">High</button>
+            <button class="filter-btn sev-medium"   onclick="filterAlerts('MEDIUM',this)">Medium</button>
+            <button class="filter-btn sev-low"      onclick="filterAlerts('LOW',this)">Low</button>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Time</th><th>Rule ID</th><th>Name</th><th>Severity</th><th>MITRE</th></tr></thead>
+          <tbody id="alertsTbody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- EVENTS -->
+    <div id="tab-events" class="tab-section">
+      <div class="page-header"><div class="page-title">Events</div></div>
+      <div class="table-card">
+        <div class="table-header">
+          <div class="card-title">Event stream</div>
+          <div class="filter-row">
+            <button class="filter-btn active" onclick="filterEvents(null,this)">All</button>
+            <button class="filter-btn"        onclick="filterEvents('auth',this)">Auth</button>
+            <button class="filter-btn"        onclick="filterEvents('web',this)">Web</button>
+            <button class="filter-btn"        onclick="filterEvents('kernel',this)">Kernel</button>
+            <button class="filter-btn"        onclick="filterEvents('syslog',this)">Syslog</button>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Time</th><th>Source</th><th>Category</th><th>Raw log</th></tr></thead>
+          <tbody id="eventsTbody"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- RULES -->
+    <div id="tab-rules" class="tab-section">
+      <div class="page-header">
+        <div class="page-title">Detection Rules</div>
+        <div class="page-sub" id="rules-count"></div>
+      </div>
+      <div class="table-card">
+        <div class="table-header"><div class="card-title">Active rules</div></div>
+        <table>
+          <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Severity</th><th>MITRE</th></tr></thead>
+          <tbody id="rulesTbody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+function updateClock() {
+  document.getElementById('clock').textContent =
+    new Date().toUTCString().replace('GMT', 'UTC');
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+function showTab(name, el) {
+  document.querySelectorAll('.tab-section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  el.classList.add('active');
+  if (name === 'rules')  loadRules();
+  if (name === 'events') loadEvents();
+  if (name === 'alerts') loadAlerts();
+}
+
+let chartTimeline, chartCat;
+const CHART_OPTS = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { display: false } },
+  scales: {
+    x: { grid: { color: '#1e2d3d' }, ticks: { color: '#4a6070', font: { family: 'JetBrains Mono', size: 11 } } },
+    y: { grid: { color: '#1e2d3d' }, ticks: { color: '#4a6070', font: { family: 'JetBrains Mono', size: 11 } } }
+  }
+};
+
+async function loadStats() {
+  try {
+    const d = await fetch('/api/stats').then(r => r.json());
+
+    document.getElementById('kpi-critical').textContent = d.by_severity?.CRITICAL ?? 0;
+    document.getElementById('kpi-high').textContent     = d.by_severity?.HIGH     ?? 0;
+    document.getElementById('kpi-medium').textContent   = d.by_severity?.MEDIUM   ?? 0;
+    document.getElementById('kpi-events').textContent   = d.total_events           ?? 0;
+
+    const hours  = d.events_by_hour ?? [];
+    const labels = hours.map(h => h.hour?.slice(11, 16) ?? '');
+    const counts = hours.map(h => h.count);
+    if (!chartTimeline) {
+      chartTimeline = new Chart(document.getElementById('chartTimeline'), {
+        type: 'bar',
+        data: { labels, datasets: [{ data: counts, backgroundColor: 'rgba(0,217,255,.22)', borderColor: 'rgba(0,217,255,.7)', borderWidth: 1, borderRadius: 3 }] },
+        options: CHART_OPTS
+      });
+    } else {
+      chartTimeline.data.labels = labels;
+      chartTimeline.data.datasets[0].data = counts;
+      chartTimeline.update();
+    }
+
+    const cats  = Object.keys(d.by_category ?? {});
+    const cvals = cats.map(c => d.by_category[c]);
+    const COLORS = ['#00d9ff','#3ddc97','#f7c94b','#ff8c42','#ff4757','#9b59b6'];
+    if (!chartCat) {
+      chartCat = new Chart(document.getElementById('chartCat'), {
+        type: 'doughnut',
+        data: { labels: cats, datasets: [{ data: cvals, backgroundColor: COLORS, borderWidth: 0 }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: true, position: 'right', labels: { color: '#4a6070', font: { family: 'JetBrains Mono', size: 11 }, padding: 14 } } }
+        }
+      });
+    } else {
+      chartCat.data.labels = cats;
+      chartCat.data.datasets[0].data = cvals;
+      chartCat.update();
+    }
+
+    const ipData = d.top_src_ips ?? [];
+    const maxCnt = ipData.length ? Math.max(...ipData.map(i => i.count)) : 1;
+    document.getElementById('topIps').innerHTML = ipData.length
+      ? ipData.map(i => `<div class="ip-row"><div class="ip-addr">${i.ip}</div><div class="ip-bar-bg"><div class="ip-bar-fill" style="width:${Math.round(i.count/maxCnt*100)}%"></div></div><div class="ip-count">${i.count}</div></div>`).join('')
+      : '<div class="empty">No IP data yet</div>';
+
+    const alerts = await fetch('/api/alerts?limit=8').then(r => r.json());
+    document.getElementById('overviewAlertsTbody').innerHTML = alerts.length
+      ? alerts.map(a => `<tr><td class="td-time">${fmtTime(a.timestamp)}</td><td>${a.rule_name??'–'}</td><td><span class="badge badge-${a.severity}">${a.severity}</span></td><td style="color:var(--muted)">${a.event_id??'–'}</td></tr>`).join('')
+      : '<tr><td colspan="4" class="empty">No alerts yet</td></tr>';
+
+  } catch(e) { console.error(e); }
+}
+
+let allAlerts = [];
+async function loadAlerts() {
+  allAlerts = await fetch('/api/alerts?limit=500').then(r => r.json());
+  renderAlerts(allAlerts);
+}
+function filterAlerts(sev, btn) {
+  document.querySelectorAll('#tab-alerts .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderAlerts(sev ? allAlerts.filter(a => a.severity === sev) : allAlerts);
+}
+function renderAlerts(data) {
+  document.getElementById('alertsTbody').innerHTML = data.length
+    ? data.map(a => `<tr><td class="td-time">${fmtTime(a.timestamp)}</td><td class="rule-id">${a.rule_id??'–'}</td><td>${a.rule_name??'–'}</td><td><span class="badge badge-${a.severity}">${a.severity}</span></td><td>${a.mitre?`<span class="mitre">${a.mitre}</span>`:'–'}</td></tr>`).join('')
+    : '<tr><td colspan="5" class="empty">No alerts</td></tr>';
+}
+
+let allEvents = [];
+async function loadEvents() {
+  allEvents = await fetch('/api/events?limit=500').then(r => r.json());
+  renderEvents(allEvents);
+}
+function filterEvents(cat, btn) {
+  document.querySelectorAll('#tab-events .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderEvents(cat ? allEvents.filter(e => e.category === cat) : allEvents);
+}
+function renderEvents(data) {
+  document.getElementById('eventsTbody').innerHTML = data.length
+    ? data.map(e => `<tr><td class="td-time">${fmtTime(e.timestamp)}</td><td class="td-source">${e.source??'–'}</td><td><span class="badge badge-${e.category}">${e.category}</span></td><td class="td-raw">${escHtml(e.raw??'')}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="empty">No events</td></tr>';
+}
+
+async function loadRules() {
+  const rules = await fetch('/api/rules').then(r => r.json());
+  document.getElementById('rules-count').textContent = `${rules.length} rules loaded`;
+  document.getElementById('rulesTbody').innerHTML = rules.map(r => `<tr><td class="rule-id">${r.id}</td><td style="font-weight:600">${r.name}</td><td style="color:var(--muted);font-size:12px">${r.description}</td><td><span class="badge badge-${r.severity}">${r.severity}</span></td><td>${r.mitre?`<span class="mitre">${r.mitre}</span>`:'–'}</td></tr>`).join('');
+}
+
+function fmtTime(ts) {
+  if (!ts) return '–';
+  try { return new Date(ts).toISOString().replace('T',' ').slice(0,19)+' UTC'; }
+  catch { return ts; }
+}
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+loadStats();
+setInterval(loadStats, 10000);
+</script>
+</body>
+</html>
