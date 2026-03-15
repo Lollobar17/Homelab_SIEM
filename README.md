@@ -45,6 +45,8 @@ python simulate_logs.py
 ```
 
 The `data/siem.db` SQLite database is created automatically on first run.
+> The dashboard is optimized for Full HD (1920x1080) displays or higher.
+
 
 ---
 
