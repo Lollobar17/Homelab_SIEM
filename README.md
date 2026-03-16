@@ -56,12 +56,12 @@ The `data/siem.db` SQLite database is created automatically on first run.
 ┌──────────────────────────────────────────────────────┐
 │                   HomeLab SIEM                       │
 │                                                      │
-│  ┌──────────────┐   ┌──────────────┐                │
-│  │ File Tailers │   │ UDP Syslog   │  ← collectors  │
-│  │ (auth.log,   │   │ (port 5140)  │                │
-│  │  nginx, …)   │   └──────┬───────┘                │
-│  └──────┬───────┘          │                        │
-│         └─────────┬────────┘                        │
+│  ┌──────────────┐   ┌──────────────┐                 │
+│  │ File Tailers │   │ UDP Syslog   │  ← collectors   │
+│  │ (auth.log,   │   │ (port 5140)  │                 │
+│  │  nginx, …)   │   └──────┬───────┘                 │
+│  └──────┬───────┘          │                         │
+│         └─────────┬────────┘                         │
 │                   ▼                                  │
 │          ┌────────────────┐                          │
 │          │  collector.py  │  parse_log_line()        │
