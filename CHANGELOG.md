@@ -16,21 +16,21 @@ This project follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ### Added
 
-- **CHANGELOG.md** — version tracking and change documentation
-- **Security Assessment section** in README — links to the external
+- CHANGELOG.md — version tracking and change documentation
+- Security Assessment section in README — links to the external
   pentest findings that motivated this release
 
 ### Changed
 
-- **AUTH-002 rule** — updated MITRE classification from T1078 (Valid Accounts)
+- AUTH-002 rule — updated MITRE classification from T1078 (Valid Accounts)
   to T1110 (Brute Force) for repeated root SSH login attempts
-  *(addresses gap G-02)*
+  (addresses gap G-02)
 
 ### Fixed
 
-- **Alert schema** — added `source_ip` as a mandatory field in alert
-  data returned by `/api/alerts`
-  *(addresses gap G-03)*
+- Alert schema — added source_ip as a mandatory field in alert
+  data returned by /api/alerts
+  (addresses gap G-03)
 
 ### Known Gaps — Planned for v1.2.0
 
@@ -38,10 +38,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com) conventions.
 > The following gaps were identified during assessment and are not yet
 > resolved in this release. They are tracked in the improvement roadmap.
 
-- **G-01** — No network-level scanning detection (requires Suricata/Zeek integration)
-- **G-04** — No brute force volume correlation rule (time-window based)
-- **G-05 / G-06** — Flask access logs not parsed (web layer blind spot)
-- **G-07** — No CRITICAL severity threshold defined
+- G-01 — No network-level scanning detection (requires Suricata/Zeek integration)
+- G-04 — No brute force volume correlation rule (time-window based)
+- G-05 / G-06 — Flask access logs not parsed (web layer blind spot)
+- G-07 — No CRITICAL severity threshold defined
 
 > [!NOTE]
 > G-05 and G-06 are partially mitigated by existing rules WEB-001
@@ -61,7 +61,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com) conventions.
 - Log parsing for SSH/auth, Apache/Nginx, kernel/dmesg and syslog
 - Rule engine with 8 built-in detection rules mapped to MITRE ATT&CK
 - Live web dashboard — KPIs, timeline chart, alert table, event stream
-- REST API — `/api/events`, `/api/alerts`, `/api/stats`, `/api/ingest`
+- REST API — /api/events, /api/alerts, /api/stats, /api/ingest
 - Demo simulator for generating realistic fake logs
 - SQLite persistence layer
 
@@ -87,6 +87,6 @@ This project follows [Keep a Changelog](https://keepachangelog.com) conventions.
 ## Versioning
 
 This project uses [Semantic Versioning](https://semver.org):
-- **MAJOR** — breaking changes to API or architecture
-- **MINOR** — new features or detection rules
-- **PATCH** — bug fixes and minor improvements
+- MAJOR — breaking changes to API or architecture
+- MINOR — new features or detection rules
+- PATCH — bug fixes and minor improvements
