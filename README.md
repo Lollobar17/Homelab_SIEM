@@ -184,8 +184,8 @@ Homelab_SIEM/
 - [x] REST API
 - [x] Demo simulator
 - [x] Security assessment via Network Security Monitoring Lab
-- [x] Fix AUTH-002 MITRE classification (G-02)
-- [x] Add source_ip to alert schema (G-03)
+- [ ] Fix AUTH-002 MITRE classification (G-02)
+- [ ] Add source_ip to alert schema (G-03)
 - [ ] Brute force volume correlation rule — T1110 (G-04)
 - [ ] Flask access log parsing — web layer visibility (G-05, G-06)
 - [ ] CRITICAL severity thresholds (G-07)
