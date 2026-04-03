@@ -6,6 +6,8 @@ Useful for testing the dashboard without a real Linux system.
 
 Usage:
     python simulate_logs.py [--host http://localhost:5000] [--rate 1.5]
+    python simulate_logs.py --stress-test          # test AUTH-005 and WEB-004 thresholds
+    python simulate_logs.py --stress-test --ip 10.0.0.1  # custom attacker IP
 """
 
 import argparse
@@ -76,11 +78,78 @@ LOG_GENERATORS = [
     },
 ]
 
+
+def stress_test(host: str, attacker_ip: str):
+    """
+    Stress test mode — fires AUTH-005 and WEB-004 thresholds
+    by sending bursts of events from a single fixed IP.
+    """
+    url = f"{host}/api/ingest"
+    print(f"\n[Stress Test] Attacker IP: {attacker_ip}")
+    print("[Stress Test] Phase 1 — SSH brute force burst (triggers AUTH-005)")
+
+    # Phase 1: 12 SSH failed logins from same IP → triggers AUTH-005 (threshold: 10)
+    for i in range(12):
+        entry = {
+            "raw": f"Mar 15 12:00:{i:02d} homelab sshd[1234]: Failed password for root from {attacker_ip} port 22 ssh2",
+            "source": "auth"
+        }
+        try:
+            r = requests.post(url, json=entry, timeout=3)
+            data = r.json()
+            alerts = data.get("alerts", 0)
+            flag = "[ALERT]" if alerts > 0 else "      "
+            print(f"  {flag}  [{i+1:>3}/12] SSH fail from {attacker_ip} | alerts: {alerts}")
+        except Exception as e:
+            print(f"  [!] Error: {e}")
+        time.sleep(0.1)
+
+    print("\n[Stress Test] Phase 2 — Web 4xx flood (triggers WEB-004)")
+
+    # Phase 2: 55 web 4xx responses from same IP → triggers WEB-004 (threshold: 50)
+    for i in range(55):
+        entry = {
+            "raw": f'{attacker_ip} - - [{rand_dt()}] "GET /admin HTTP/1.1" 404 512',
+            "source": "apache"
+        }
+        try:
+            r = requests.post(url, json=entry, timeout=3)
+            data = r.json()
+            alerts = data.get("alerts", 0)
+            flag = "[ALERT]" if alerts > 0 else "      "
+            print(f"  {flag}  [{i+1:>3}/55] Web 404 from {attacker_ip} | alerts: {alerts}")
+        except Exception as e:
+            print(f"  [!] Error: {e}")
+        time.sleep(0.05)
+
+    print("\n[Stress Test] Phase 3 — Successful login after failures (triggers AUTH-006)")
+
+    # Phase 3: successful login from same IP after brute force → triggers AUTH-006
+    entry = {
+        "raw": f"Mar 15 12:01:00 homelab sshd[1234]: Accepted password for root from {attacker_ip} port 22 ssh2",
+        "source": "auth"
+    }
+    try:
+        r = requests.post(url, json=entry, timeout=3)
+        data = r.json()
+        alerts = data.get("alerts", 0)
+        flag = "[ALERT]" if alerts > 0 else "      "
+        print(f"  {flag}  Successful login from {attacker_ip} | alerts: {alerts}")
+    except Exception as e:
+        print(f"  [!] Error: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="HomeLab SIEM Log Simulator")
     parser.add_argument("--host", default="http://localhost:5000", help="SIEM base URL")
     parser.add_argument("--rate", type=float, default=1.5, help="Average logs per second")
+    parser.add_argument("--stress-test", action="store_true", help="Run threshold stress test")
+    parser.add_argument("--ip", default="10.10.10.10", help="Attacker IP for stress test")
     args = parser.parse_args()
+
+    if args.stress_test:
+        stress_test(args.host, args.ip)
+        return
 
     url = f"{args.host}/api/ingest"
     print(f"[Simulator] Sending logs to {url}  ({args.rate:.1f} logs/s)")

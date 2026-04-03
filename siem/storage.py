@@ -46,7 +46,8 @@ def _init_db(conn: sqlite3.Connection):
             rule_name   TEXT,
             description TEXT,
             severity    TEXT,
-            mitre       TEXT
+            mitre       TEXT,
+            source_ip   TEXT
         );
 
         CREATE INDEX IF NOT EXISTS idx_events_ts       ON events(timestamp DESC);
@@ -55,6 +56,22 @@ def _init_db(conn: sqlite3.Connection):
         CREATE INDEX IF NOT EXISTS idx_alerts_ts       ON alerts(timestamp DESC);
     """)
     conn.commit()
+    _migrate(conn)
+
+
+def _migrate(conn: sqlite3.Connection):
+    """
+    Apply schema migrations for existing databases.
+    Safe to run on every startup — skips columns that already exist.
+    """
+    existing_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(alerts)").fetchall()
+    }
+    # G-03 migration: add source_ip if missing
+    if "source_ip" not in existing_columns:
+        conn.execute("ALTER TABLE alerts ADD COLUMN source_ip TEXT")
+        conn.commit()
+        logger.info("[DB] Migration applied: added source_ip to alerts table")
 
 
 # ──────────────────────────────────────────────
@@ -81,8 +98,8 @@ def store_event(event: dict) -> int:
 
     for a in alerts:
         conn.execute(
-            """INSERT INTO alerts (event_id, timestamp, rule_id, rule_name, description, severity, mitre)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO alerts (event_id, timestamp, rule_id, rule_name, description, severity, mitre, source_ip)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event_id,
                 a.get("timestamp", datetime.now(timezone.utc).isoformat()),
@@ -91,6 +108,7 @@ def store_event(event: dict) -> int:
                 a.get("description"),
                 a.get("severity"),
                 a.get("mitre"),
+                a.get("source_ip"),  # G-03 fix
             )
         )
 

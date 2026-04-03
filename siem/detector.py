@@ -60,7 +60,7 @@ RULES = [
         "description": "Someone tried to log in as root via SSH.",
         "severity": "HIGH",
         "category": "auth",
-        "mitre": "T1078",
+        "mitre": "T1110",  # G-02 fix: T1078 → T1110 (Brute Force is more accurate)
         "match": lambda e: (
             e.get("category") == "auth"
             and re.search(r"(invalid user root|failed.*root|root.*failed)", 
@@ -97,6 +97,45 @@ RULES = [
             and "command" in e.get("fields", {}).get("message", "").lower()
         ),
         "threshold": None,
+    },
+
+    # G-04: Brute force volume correlation rule — T1110
+    # Triggers CRITICAL when >10 failed SSH attempts from same IP in 60 seconds
+    {
+        "id": "AUTH-005",
+        "name": "SSH Brute Force — High Volume",
+        "description": "More than 10 failed SSH login attempts from the same IP in 60 seconds. Likely automated attack.",
+        "severity": "CRITICAL",
+        "category": "auth",
+        "mitre": "T1110",
+        "match": lambda e: (
+            e.get("category") == "auth"
+            and "failed" in e.get("fields", {}).get("message", "").lower()
+        ),
+        "threshold": lambda e: _count_recent(
+            f"ssh_fail_volume:{e['fields'].get('src_ip','unknown')}",
+            time.time()
+        ) >= 10,
+    },
+
+    # G-07: Successful login after multiple failures → CRITICAL
+    {
+        "id": "AUTH-006",
+        "name": "Successful Login After Failures",
+        "description": "Successful authentication after repeated failures — possible credential compromise.",
+        "severity": "CRITICAL",
+        "category": "auth",
+        "mitre": "T1110",
+        "match": lambda e: (
+            e.get("category") == "auth"
+            and re.search(r"accepted password|accepted publickey",
+                          e.get("fields", {}).get("message", ""), re.I) is not None
+        ),
+        "threshold": lambda e: _count_recent(
+            f"ssh_fail:{e['fields'].get('src_ip','unknown')}",
+            time.time(),
+            window=300
+        ) >= 3,
     },
 
     # ── Web ───────────────────────────────────────────────────────────────
@@ -150,6 +189,23 @@ RULES = [
         "threshold": None,
     },
 
+    {
+        "id": "WEB-004",
+        "name": "Web Brute Force — High Volume",
+        "description": "More than 50 HTTP 4xx responses from the same IP in 60 seconds. CRITICAL threshold.",
+        "severity": "CRITICAL",
+        "category": "web",
+        "mitre": "T1110",
+        "match": lambda e: (
+            e.get("category") == "web"
+            and 400 <= e.get("fields", {}).get("status", 0) < 500
+        ),
+        "threshold": lambda e: _count_recent(
+            f"web_4xx:{e['fields'].get('src_ip','unknown')}",
+            time.time()
+        ) >= 50,
+    },
+
     # ── Kernel / System ───────────────────────────────────────────────────
 
     {
@@ -199,6 +255,7 @@ def analyze_event(event: dict) -> list[dict]:
                         "description": rule["description"],
                         "severity":    rule["severity"],
                         "mitre":       rule.get("mitre"),
+                        "source_ip":   event.get("fields", {}).get("src_ip"),  # G-03 fix
                         "timestamp":   datetime.now(timezone.utc).isoformat(),
                     })
         except Exception as exc:

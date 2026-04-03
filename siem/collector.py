@@ -139,6 +139,24 @@ def parse_log_line(raw: str, source: str) -> dict:
         }
         return base
 
+    # ── Flask / Werkzeug access log (G-05, G-06) ────────────────────────
+    # Format: 127.0.0.1 - - [01/Jan/2026 12:00:00] "GET /api/events HTTP/1.1" 200 -
+    m = re.match(
+        r'(?P<ip>[\d.]+) - - \[(?P<dt>[^\]]+)\] '
+        r'"(?P<method>\w+) (?P<path>\S+)[^"]*" (?P<status>\d{3})',
+        raw
+    )
+    if m:
+        base["category"] = "web"
+        base["fields"] = {
+            "src_ip": m.group("ip"),
+            "method": m.group("method"),
+            "path": m.group("path"),
+            "status": int(m.group("status")),
+            "source": "flask",
+        }
+        return base
+
     # ── Kernel / dmesg ──────────────────────────────────────────────────
     m = re.match(r"\[[\d. ]+\]\s+(?P<msg>.+)", raw)
     if m:
