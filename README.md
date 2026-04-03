@@ -184,12 +184,12 @@ Homelab_SIEM/
 - [x] REST API
 - [x] Demo simulator
 - [x] Security assessment via Network Security Monitoring Lab
-- [ ] Fix AUTH-002 MITRE classification (G-02)
-- [ ] Add source_ip to alert schema (G-03)
-- [ ] Brute force volume correlation rule — T1110 (G-04)
-- [ ] Flask access log parsing — web layer visibility (G-05, G-06)
-- [ ] CRITICAL severity thresholds (G-07)
-- [ ] Network monitoring layer — Suricata/Zeek (G-01)
+- [x] Fix AUTH-002 MITRE classification (G-02)
+- [x] Add source_ip to alert schema (G-03)
+- [x] Brute force volume correlation rule — T1110 (G-04)
+- [x] Flask access log parsing — web layer visibility (G-05, G-06)
+- [x] CRITICAL severity thresholds (G-07)
+- [x] Network monitoring layer — Suricata/Zeek (G-01)
 - [ ] GeoIP lookup for source IPs
 - [ ] Discord / Telegram alert notifications
 - [ ] Docker Compose setup
