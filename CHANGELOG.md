@@ -5,48 +5,74 @@ This project follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [1.2.0] - 2026-03-28
+
+> [!IMPORTANT]
+> This release implements all remaining security improvements identified
+> during the penetration testing assessment. All 7 gaps (G-01 through G-07)
+> are now either resolved or explicitly tracked as future work.
+
+### Added
+
+- AUTH-005 — SSH Brute Force High Volume rule (CRITICAL severity)
+  Triggers when more than 10 failed SSH attempts occur from the same IP
+  in 60 seconds. Closes G-04.
+
+- AUTH-006 — Successful Login After Failures rule (CRITICAL severity)
+  Triggers when a successful login follows 3+ failed attempts from the
+  same IP in 5 minutes. Closes G-07 (partial).
+
+- WEB-004 — Web Brute Force High Volume rule (CRITICAL severity)
+  Triggers when more than 50 HTTP 4xx responses come from the same IP
+  in 60 seconds. Closes G-07 (partial).
+
+- Flask/Werkzeug access log parser added to collector.py
+  The SIEM now parses Flask access logs and detects web-layer anomalies.
+  Closes G-05 and G-06.
+
+- stress-test mode added to simulate_logs.py
+  New --stress-test flag fires AUTH-005, WEB-004 and AUTH-006 in sequence
+  for threshold validation testing.
+
+### Changed
+
+- source_ip added to all generated alerts in detector.py
+  Every alert now includes the attacker IP extracted from the log event.
+  Closes G-03.
+
+- Database migration added to storage.py
+  Automatic schema migration runs on startup — adds source_ip column to
+  existing databases without requiring manual intervention.
+
+### Known Gaps — Planned for v1.3.0
+
+> [!CAUTION]
+> The following gap was identified during assessment and remains open.
+> It requires significant architectural work beyond rule engine changes.
+
+- G-01 — No network-level scanning detection
+  Requires integration with a network monitoring tool such as Suricata
+  or Zeek to detect inbound port scanning activity.
+
+---
+
 ## [1.1.0] - 2026-03-26
 
 > [!IMPORTANT]
-> This release addresses security gaps identified during a structured
-> penetration testing assessment conducted via the
+> This release addresses initial documentation gaps identified during
+> the penetration testing assessment conducted via the
 > [Network Security Monitoring Lab](https://github.com/Lollobar17/Network_Security_Lab).
-> All changes are directly traceable to documented findings in the
-> gap analysis report (G-01 through G-07).
 
 ### Added
 
 - CHANGELOG.md — version tracking and change documentation
-- Security Assessment section in README — links to the external
-  pentest findings that motivated this release
+- Security Assessment section in README — links to external pentest findings
 
 ### Changed
 
 - AUTH-002 rule — updated MITRE classification from T1078 (Valid Accounts)
-  to T1110 (Brute Force) for repeated root SSH login attempts
-  (addresses gap G-02)
-
-### Fixed
-
-- Alert schema — added source_ip as a mandatory field in alert
-  data returned by /api/alerts
-  (addresses gap G-03)
-
-### Known Gaps — Planned for v1.2.0
-
-> [!CAUTION]
-> The following gaps were identified during assessment and are not yet
-> resolved in this release. They are tracked in the improvement roadmap.
-
-- G-01 — No network-level scanning detection (requires Suricata/Zeek integration)
-- G-04 — No brute force volume correlation rule (time-window based)
-- G-05 / G-06 — Flask access logs not parsed (web layer blind spot)
-- G-07 — No CRITICAL severity threshold defined
-
-> [!NOTE]
-> G-05 and G-06 are partially mitigated by existing rules WEB-001
-> (Directory Traversal) and WEB-003 (SQL Injection Attempt), which
-> would fire if Flask access logs were parsed by the collector.
+  to T1110 (Brute Force) for repeated root SSH login attempts.
+  Closes G-02.
 
 ---
 
