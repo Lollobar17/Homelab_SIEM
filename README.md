@@ -189,7 +189,7 @@ Homelab_SIEM/
 - [x] Brute force volume correlation rule — T1110 (G-04)
 - [x] Flask access log parsing — web layer visibility (G-05, G-06)
 - [x] CRITICAL severity thresholds (G-07)
-- [x] Network monitoring layer — Suricata/Zeek (G-01)
+- [ ] Network monitoring layer — Suricata/Zeek (G-01)
 - [ ] GeoIP lookup for source IPs
 - [ ] Discord / Telegram alert notifications
 - [ ] Docker Compose setup
