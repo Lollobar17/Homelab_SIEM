@@ -11,6 +11,7 @@ import threading
 import logging
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import unquote
 from siem.storage import store_event
 from siem.detector import analyze_event
 
@@ -30,6 +31,12 @@ class LogFileTailer(threading.Thread):
 
     def run(self):
         logger.info(f"[Tailer] Watching {self.path}")
+        # Wait for file to exist — important for files created after startup
+        # (e.g. logs/flask_access.log created on first Flask request)
+        while not Path(self.path).exists():
+            logger.debug(f"[Tailer] Waiting for {self.path} to exist...")
+            time.sleep(1)
+        logger.info(f"[Tailer] File found, starting tail: {self.path}")
         try:
             with open(self.path, "r", encoding="utf-8", errors="replace") as f:
                 f.seek(0, 2)          # jump to end
@@ -39,8 +46,6 @@ class LogFileTailer(threading.Thread):
                         _process_raw_line(line.strip(), self.source_name)
                     else:
                         time.sleep(0.3)
-        except FileNotFoundError:
-            logger.warning(f"[Tailer] File not found: {self.path}")
         except Exception as e:
             logger.error(f"[Tailer] Error on {self.path}: {e}")
 
@@ -78,7 +83,9 @@ def _process_raw_line(raw: str, source: str):
     """Parse a raw log line into a structured event and run detection."""
     if not raw:
         return
-
+    # Strip ANSI escape codes
+    raw = re.sub(r'\x1b\[[0-9;]*m', '', raw)
+    
     event = parse_log_line(raw, source)
     alerts = analyze_event(event)
     event["alerts"] = alerts
@@ -125,17 +132,24 @@ def parse_log_line(raw: str, source: str) -> dict:
     # ── Apache / Nginx access log ───────────────────────────────────────
     m = re.match(
         r'(?P<ip>[\d.]+) - .* \[(?P<dt>[^\]]+)\] '
-        r'"(?P<method>\w+) (?P<path>\S+)[^"]*" (?P<status>\d{3}) (?P<size>\d+)',
+        r'"(?P<method>\w+) (?P<path>\S+)[^"]*" (?P<status>\d{3})( \d+)?',
         raw
     )
     if m:
         base["category"] = "web"
+        path_full = m.group("path")
+        path = path_full.split("?")[0] if "?" in path_full else path_full
+        query = path_full.split("?", 1)[1] if "?" in path_full else ""
+        query_decoded = unquote(query)
         base["fields"] = {
             "src_ip": m.group("ip"),
+
             "method": m.group("method"),
-            "path": m.group("path"),
+            "path": path,
+            "query": query_decoded,
+            "full_uri": path_full,
             "status": int(m.group("status")),
-            "size": int(m.group("size")),
+"size": 0,
         }
         return base
 
@@ -148,11 +162,18 @@ def parse_log_line(raw: str, source: str) -> dict:
     )
     if m:
         base["category"] = "web"
+        path_full = m.group("path")
+        path = path_full.split("?")[0] if "?" in path_full else path_full
+        query = path_full.split("?", 1)[1] if "?" in path_full else ""
+        query_decoded = unquote(query)
         base["fields"] = {
             "src_ip": m.group("ip"),
             "method": m.group("method"),
-            "path": m.group("path"),
+            "path": path,
+            "query": query_decoded,
+            "full_uri": path_full,
             "status": int(m.group("status")),
+            "size": 0,
             "source": "flask",
         }
         return base

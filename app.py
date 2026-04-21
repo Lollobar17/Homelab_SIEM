@@ -27,6 +27,12 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
 )
+
+# G-05/G-06: Write Flask access log to file for SIEM collector 
+os.makedirs("logs", exist_ok=True)
+flask_log_handler = logging.FileHandler("logs/flask_access.log")
+flask_log_handler.setLevel(logging.INFO)
+logging.getLogger("werkzeug").addHandler(flask_log_handler)
 logger = logging.getLogger("siem.app")
 
 # ──────────────────────────────────────────────
@@ -42,6 +48,7 @@ DEFAULT_CONFIG = {
         {"path": "/var/log/syslog",      "name": "syslog"},
         {"path": "/var/log/apache2/access.log", "name": "apache"},
         {"path": "/var/log/nginx/access.log",   "name": "nginx"},
+        {"path": "logs/flask_access.log", "name": "flask"}
     ],
     "web_host": "0.0.0.0",
     "web_port": 5000,
@@ -107,7 +114,7 @@ def api_ingest():
         return jsonify({"error": "missing 'raw' field"}), 400
 
     from siem.collector import parse_log_line
-    event  = parse_log_line(raw, source=body.get("source", "api"))
+    event  = parse_log_line(raw, source=body.get("source", "api")) or {"fields": {}}
     alerts = analyze_event(event)
     event["alerts"] = alerts
     eid = store_event(event)
@@ -123,6 +130,34 @@ def api_health():
         "time": datetime.now(timezone.utc).isoformat(),
         "version": "1.0.0",
     })
+
+
+# ── Vulnerable endpoint (intentional — lab demonstration only) ───────────
+
+@app.route("/vulnerable")
+def vulnerable_search():
+    """
+    Intentionally vulnerable to SQL injection.
+    For HomeLab SIEM demonstration purposes only.
+    """
+    import sqlite3
+
+    query = request.args.get("q", "1")
+
+    # Deliberately unsafe — no parameterization (intentional for lab)
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE users (id INTEGER, username TEXT, email TEXT)")
+    conn.execute("INSERT INTO users VALUES (1, 'admin', 'admin@lab.local')")
+    conn.execute("INSERT INTO users VALUES (2, 'user1', 'user1@lab.local')")
+
+    try:
+        cursor = conn.execute(f"SELECT * FROM users WHERE id = {query}")
+        rows = cursor.fetchall()
+        return jsonify({"results": rows})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
 
 
 # ──────────────────────────────────────────────

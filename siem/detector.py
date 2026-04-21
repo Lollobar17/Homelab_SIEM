@@ -79,9 +79,9 @@ RULES = [
         "match": lambda e: (
             e.get("category") == "auth"
             and re.search(r"accepted.*root", 
-                          e.get("fields", {}).get("message", ""), re.I) is not None
+            e.get("fields", {}).get("message", ""), re.I) is not None
         ),
-        "threshold": None,
+        "threshold": None, 
     },
 
     {
@@ -175,16 +175,21 @@ RULES = [
     {
         "id": "WEB-003",
         "name": "SQL Injection Attempt",
-        "description": "Common SQL injection patterns detected in request path.",
+"description": "SQL injection patterns detected in path/query/full URI (handles URL-encoded payloads).",
         "severity": "HIGH",
         "category": "web",
         "mitre": "T1190",
         "match": lambda e: (
             e.get("category") == "web"
-            and re.search(
-                r"(union.*select|select.*from|drop.*table|'.*or.*'|--$|;.*--)",
-                e.get("fields", {}).get("path", ""), re.I
-            ) is not None
+            and any(re.search(
+r"(union|select|insert|drop|delete|update|or 1=|and 1=|benchmark|sleep|waitfor|pg_sleep|dbms_pipe|extractvalue|order by|--|/\*\*|; --|exec|xp_cmdshell|cast|chr|1' OR '1'='1|UNION SELECT| SLEEP| DROP TABLE)",
+
+                target, re.I
+            ) is not None for target in [
+                e.get("fields", {}).get("path", ""),
+                e.get("fields", {}).get("query", ""),
+                e.get("fields", {}).get("full_uri", "")
+            ])
         ),
         "threshold": None,
     },

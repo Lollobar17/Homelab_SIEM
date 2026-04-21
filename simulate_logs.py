@@ -144,9 +144,13 @@ def main():
     parser.add_argument("--host", default="http://localhost:5000", help="SIEM base URL")
     parser.add_argument("--rate", type=float, default=1.5, help="Average logs per second")
     parser.add_argument("--stress-test", action="store_true", help="Run threshold stress test")
+    parser.add_argument("--sqli-test", action="store_true", help="Test WEB-003 SQLi detection")
     parser.add_argument("--ip", default="10.10.10.10", help="Attacker IP for stress test")
     args = parser.parse_args()
 
+    if args.sqli_test:
+        sqli_test(args.host, args.ip)
+        return
     if args.stress_test:
         stress_test(args.host, args.ip)
         return
@@ -170,6 +174,32 @@ def main():
 
         delay = random.expovariate(args.rate)
         time.sleep(min(delay, 5.0))
+
+def sqli_test(host: str, attacker_ip: str):
+    """
+    SQLi test — sends common sqlmap payloads to trigger WEB-003.
+    """
+    url = f"{host}/api/ingest"
+    print(f"\n[SQLi Test] Attacker IP: {attacker_ip}")
+    payloads = [
+        f'{attacker_ip} - - [01/Jan/2024:12:00:00] "GET /search?id=1%27%20OR%20%271%27%3D%271 HTTP/1.1" 200 -',  # Boolean blind
+        f'{attacker_ip} - - [01/Jan/2024:12:00:01] "GET /?q=1+AND+1=1 HTTP/1.1" 200 -',  # AND 1=1
+        f'{attacker_ip} - - [01/Jan/2024:12:00:02] "POST /login HTTP/1.1" 200 -',  # UNION (body not in access log)
+        f'{attacker_ip} - - [01/Jan/2024:12:00:03] "GET /vuln.php?id=1; DROP TABLE users--" 404 -',  # DROP
+        f'{attacker_ip} - - [01/Jan/2024:12:00:04] "GET /api/users?filter=1%20OR%20SLEEP(5)-- HTTP/1.1" 200 -',  # Time blind
+    ]
+    for i, raw_log in enumerate(payloads, 1):
+        entry = {"raw": raw_log, "source": "flask"}
+        try:
+            r = requests.post(url, json=entry, timeout=3)
+
+            data = r.json()
+            alerts = data.get("alerts", 0)
+            flag = "[WEB-003!]" if alerts > 0 else "[no alert]"
+            print(f"  {flag:>10} [{i}/5] {raw_log[-60:]} | alerts: {alerts}")
+        except Exception as e:
+            print(f"  [!] Error: {e}")
+        time.sleep(0.5)
 
 if __name__ == "__main__":
     main()
