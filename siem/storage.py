@@ -72,6 +72,11 @@ def _migrate(conn: sqlite3.Connection):
         conn.execute("ALTER TABLE alerts ADD COLUMN source_ip TEXT")
         conn.commit()
         logger.info("[DB] Migration applied: added source_ip to alerts table")
+    
+    if "geo" not in existing_columns:
+        conn.execute("ALTER TABLE alerts ADD COLUMN geo TEXT")
+        conn.commit()
+        logger.info("[DB] Migration applied: added geo to alerts table")
 
 
 # ──────────────────────────────────────────────
@@ -98,8 +103,8 @@ def store_event(event: dict) -> int:
 
     for a in alerts:
         conn.execute(
-            """INSERT INTO alerts (event_id, timestamp, rule_id, rule_name, description, severity, mitre, source_ip)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO alerts (event_id, timestamp, rule_id, rule_name, description, severity, mitre, source_ip, geo)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event_id,
                 a.get("timestamp", datetime.now(timezone.utc).isoformat()),
@@ -109,6 +114,7 @@ def store_event(event: dict) -> int:
                 a.get("severity"),
                 a.get("mitre"),
                 a.get("source_ip"),  # G-03 fix
+                json.dumps(a.get("geo", {})),  # GeoIP info as JSON string
             )
         )
 

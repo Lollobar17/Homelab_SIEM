@@ -8,6 +8,7 @@ import time
 import logging
 from collections import defaultdict, deque
 from datetime import datetime, timezone
+from siem.geoip import lookup as geoip_lookup
 
 logger = logging.getLogger("siem.detector")
 
@@ -64,7 +65,7 @@ RULES = [
         "match": lambda e: (
             e.get("category") == "auth"
             and re.search(r"(invalid user root|failed.*root|root.*failed)", 
-                          e.get("fields", {}).get("message", ""), re.I) is not None
+                        e.get("fields", {}).get("message", ""), re.I) is not None
         ),
         "threshold": None,
     },
@@ -129,7 +130,7 @@ RULES = [
         "match": lambda e: (
             e.get("category") == "auth"
             and re.search(r"accepted password|accepted publickey",
-                          e.get("fields", {}).get("message", ""), re.I) is not None
+                        e.get("fields", {}).get("message", ""), re.I) is not None
         ),
         "threshold": lambda e: _count_recent(
             f"ssh_fail:{e['fields'].get('src_ip','unknown')}",
@@ -150,7 +151,7 @@ RULES = [
         "match": lambda e: (
             e.get("category") == "web"
             and re.search(r"\.\./|%2e%2e|etc/passwd|/proc/self", 
-                          e.get("fields", {}).get("path", ""), re.I) is not None
+                        e.get("fields", {}).get("path", ""), re.I) is not None
         ),
         "threshold": None,
     },
@@ -250,6 +251,8 @@ r"(union|select|insert|drop|delete|update|or 1=|and 1=|benchmark|sleep|waitfor|p
 def analyze_event(event: dict) -> list[dict]:
     """Run all rules against an event; return a list of triggered alerts."""
     alerts = []
+    source_for_geo = event.get("fields", {}).get("src_ip") or event.get("raw", "")
+    geo_data = geoip_lookup(source_for_geo)
     for rule in RULES:
         try:
             if rule["match"](event):
@@ -261,6 +264,7 @@ def analyze_event(event: dict) -> list[dict]:
                         "severity":    rule["severity"],
                         "mitre":       rule.get("mitre"),
                         "source_ip":   event.get("fields", {}).get("src_ip"),  # G-03 fix
+                        "geo": geo_data,  # Add geo info to alerts
                         "timestamp":   datetime.now(timezone.utc).isoformat(),
                     })
         except Exception as exc:
