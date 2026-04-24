@@ -3,12 +3,14 @@ detector.py — Detection Engine
 Evaluates structured events against a set of rules and returns alerts.
 """
 
+import os
 import re
 import time
 import logging
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from siem.geoip import lookup as geoip_lookup
+from siem.notifier import send_alert as discord_notify
 
 logger = logging.getLogger("siem.detector")
 
@@ -267,10 +269,16 @@ def analyze_event(event: dict) -> list[dict]:
                         "geo": geo_data,  # Add geo info to alerts
                         "timestamp":   datetime.now(timezone.utc).isoformat(),
                     })
+                    _discord_notify_if_configured(alerts[-1]) # Discord notification for each alert
         except Exception as exc:
             logger.debug(f"Rule {rule['id']} evaluation error: {exc}")
     return alerts
 
+def _discord_notify_if_configured(alert: dict):
+    """Send Discord notification if webhook is configured."""
+    webhook = os.getenv("DISCORD_WEBHOOK_URL", "")
+    if webhook:
+        discord_notify(alert, webhook_url=webhook, min_severity="HIGH")
 
 def get_rules() -> list[dict]:
     """Return rule metadata (no lambdas) for the API."""
