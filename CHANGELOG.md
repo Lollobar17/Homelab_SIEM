@@ -5,6 +5,27 @@ This project follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ---
 
+## [1.3.0] - 2026-04-24
+
+> [!IMPORTANT]
+> This release adds GeoIP enrichment to all alerts, providing geographic
+> context for source IP addresses. Every alert now includes country, region,
+> city, ISP and organization data where available.
+
+### Added
+
+- **siem/geoip.py** — GeoIP lookup module using ip-api.com (free, no API key)
+  Results are cached in memory via lru_cache to avoid redundant requests.
+  Private and reserved IP ranges are handled gracefully.
+
+- **geo field** added to all generated alerts in detector.py
+  Every alert now includes geographic data for the source IP.
+
+- **geo column** added to alerts table in storage.py
+  Automatic migration handles existing databases on startup.
+
+---
+
 ## [1.2.0] - 2026-03-28
 
 > [!IMPORTANT]
@@ -30,6 +51,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com) conventions.
   The SIEM now parses Flask access logs and detects web-layer anomalies.
   Closes G-05 and G-06.
 
+- ANSI escape code stripping added to _process_raw_line() in collector.py
+  Ensures reliable parsing of Werkzeug logs that include terminal color codes.
+
 - stress-test mode added to simulate_logs.py
   New --stress-test flag fires AUTH-005, WEB-004 and AUTH-006 in sequence
   for threshold validation testing.
@@ -44,7 +68,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com) conventions.
   Automatic schema migration runs on startup — adds source_ip column to
   existing databases without requiring manual intervention.
 
-### Known Gaps — Planned for v1.3.0
+### Known Gaps — Planned for v1.4.0
 
 > [!CAUTION]
 > The following gap was identified during assessment and remains open.
