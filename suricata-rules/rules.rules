@@ -1,0 +1,57 @@
+# Homelab SIEM Detection Rules - Nmap, Nikto, SQLi, Dir Traversal, Command Injection
+
+# ──────────────────────────────────────────────────────────────────
+# WEB ATTACKS - SQLi, Dir Traversal, Command Injection
+# ──────────────────────────────────────────────────────────────────
+
+alert http any any -> any 5000 (msg:"SQLi - UNION SELECT"; content:"union"; http_uri; nocase; classtype:attempted-admin; sid:1001; rev:1;)
+alert http any any -> any 5000 (msg:"SQLi - OR 1=1"; content:"or 1=1"; http_uri; nocase; classtype:attempted-admin; sid:1002; rev:1;)
+alert http any any -> any 5000 (msg:"SQLi - UNION ALL SELECT"; content:"union all"; http_uri; nocase; classtype:attempted-admin; sid:1003; rev:1;)
+alert http any any -> any 5000 (msg:"SQLi - DROP TABLE"; content:"drop table"; http_uri; nocase; classtype:attempted-admin; sid:1004; rev:1;)
+alert http any any -> any 5000 (msg:"SQLi - Benchmark Sleep"; content:"benchmark"; http_uri; nocase; classtype:attempted-admin; sid:1005; rev:1;)
+alert http any any -> any 5000 (msg:"SQLi - WAITFOR DELAY"; content:"waitfor delay"; http_uri; nocase; classtype:attempted-admin; sid:1006; rev:1;)
+alert http any any -> any 5000 (msg:"SQLi - Comment Injection"; content:"--"; http_uri; classtype:attempted-admin; sid:1007; rev:1;)
+
+alert http any any -> any 5000 (msg:"Dir Traversal - ../"; content:"../"; http_uri; nocase; classtype:attempted-admin; sid:2001; rev:1;)
+alert http any any -> any 5000 (msg:"Dir Traversal - encoded ../"; content:"%2e%2e%2f"; http_uri; nocase; classtype:attempted-admin; sid:2002; rev:1;)
+alert http any any -> any 5000 (msg:"Dir Traversal - etc/passwd"; content:"/etc/passwd"; http_uri; nocase; classtype:attempted-admin; sid:2003; rev:1;)
+alert http any any -> any 5000 (msg:"Dir Traversal - proc/self"; content:"/proc/self"; http_uri; nocase; classtype:attempted-admin; sid:2004; rev:1;)
+
+alert http any any -> any 5000 (msg:"Cmd Injection - Pipe"; content:"|7c|"; http_uri; classtype:attempted-admin; sid:3001; rev:1;)
+alert http any any -> any 5000 (msg:"Cmd Injection - Backtick"; content:"`"; http_uri; classtype:attempted-admin; sid:3002; rev:1;)
+alert http any any -> any 5000 (msg:"Cmd Injection - Dollar Paren"; content:"$("; http_uri; classtype:attempted-admin; sid:3003; rev:1;)
+alert http any any -> any 5000 (msg:"Cmd Injection - Semicolon"; content:"|3b|"; http_uri; classtype:attempted-admin; sid:3004; rev:1;)
+
+# ──────────────────────────────────────────────────────────────────
+# WEB SCANNERS
+# ──────────────────────────────────────────────────────────────────
+
+alert http any any -> any any (msg:"Nikto Scanner"; content:"Nikto"; http_user_agent; nocase; classtype:attempted-recon; sid:4001; rev:1;)
+alert http any any -> any any (msg:"sqlmap Scanner"; content:"sqlmap"; http_user_agent; nocase; classtype:attempted-recon; sid:4002; rev:1;)
+alert http any any -> any any (msg:"Nessus Scanner"; content:"Nessus"; http_user_agent; nocase; classtype:attempted-recon; sid:4003; rev:1;)
+
+# ──────────────────────────────────────────────────────────────────
+# NMAP DETECTION RULES
+# ──────────────────────────────────────────────────────────────────
+
+# Nmap in User-Agent
+alert http any any -> any any (msg:"Nmap in User-Agent"; content:"Nmap"; http_user_agent; nocase; classtype:attempted-recon; sid:5001; rev:1;)
+
+# ICMP Echo Request (Ping Scan)
+alert icmp any any -> any any (msg:"ICMP Echo Request - Possible Ping Scan"; itype:8; classtype:attempted-recon; sid:5002; rev:1;)
+
+# TCP SYN Scan (Half-Open Scan)
+alert tcp any any -> any any (msg:"TCP SYN Scan - SYN Flag"; flags:S; classtype:attempted-recon; sid:5003; rev:1;)
+
+# TCP FIN Scan (Only FIN Flag)
+alert tcp any any -> any any (msg:"TCP FIN Scan - FIN Flag Set"; flags:F,12; classtype:attempted-recon; sid:5005; rev:1;)
+
+# TCP XMAS Scan (FIN, PSH, URG)
+alert tcp any any -> any any (msg:"TCP XMAS Scan - FPU Flags"; flags:FPU; classtype:attempted-recon; sid:5006; rev:1;)
+
+# ──────────────────────────────────────────────────────────────────
+# OTHER RECONNAISSANCE
+# ──────────────────────────────────────────────────────────────────
+
+alert http any any -> any any (msg:"Unusual HTTP User-Agent"; content:!"Mozilla"; http_user_agent; classtype:attempted-recon; sid:6001; rev:1;)
+alert tcp any any -> any any (msg:"SSH Version Detection"; content:"SSH-"; classtype:attempted-recon; sid:6002; rev:1;)

@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Runtime data — managed by Docker volumes
+data/
+logs/
+
+# Development and testing files
+simulate_logs.py
+siem/test_discord.py
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Configuration with secrets — mounted at runtime
+config.json
+
+# Version control
+.git/
+.gitignore
+
+# IDE
+.vscode/
+*.code-workspace

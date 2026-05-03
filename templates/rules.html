@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rule Editor — HomeLab SIEM</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg:        #0a0e17;
+            --surface:   #111827;
+            --border:    #1f2937;
+            --accent:    #00d4ff;
+            --accent2:   #7c3aed;
+            --text:      #e2e8f0;
+            --muted:     #64748b;
+            --critical:  #ef4444;
+            --high:      #f97316;
+            --medium:    #eab308;
+            --low:       #22c55e;
+            --success:   #10b981;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Space Grotesk', sans-serif;
+            min-height: 100vh;
+        }
+
+        /* ── Scanline overlay ── */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0,212,255,0.015) 2px,
+                rgba(0,212,255,0.015) 4px
+            );
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* ── Header ── */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1.25rem 2rem;
+            border-bottom: 1px solid var(--border);
+            background: rgba(17,24,39,0.8);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .logo-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--accent);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0,212,255,0.4); }
+            50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(0,212,255,0); }
+        }
+
+        .header-title {
+            font-size: 0.85rem;
+            color: var(--muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .nav-back {
+            font-size: 0.8rem;
+            color: var(--muted);
+            text-decoration: none;
+            font-family: 'JetBrains Mono', monospace;
+            padding: 0.4rem 0.8rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .nav-back:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+
+        /* ── Main layout ── */
+        main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* ── Page header ── */
+        .page-header {
+            margin-bottom: 2rem;
+        }
+
+        .page-header h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.5rem;
+        }
+
+        .page-header h1 span {
+            color: var(--accent);
+        }
+
+        .page-header p {
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        /* ── Stats bar ── */
+        .stats-bar {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .stat-chip {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+        }
+
+        .stat-chip .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        /* ── Toolbar ── */
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 200px;
+            position: relative;
+        }
+
+        .search-box input {
+            width: 100%;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0.6rem 1rem 0.6rem 2.5rem;
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-box input:focus { border-color: var(--accent); }
+
+        .search-box::before {
+            content: '⌕';
+            position: absolute;
+            left: 0.75rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--muted);
+            font-size: 1rem;
+        }
+
+        .filter-btn {
+            padding: 0.6rem 1rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--muted);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .filter-btn:hover, .filter-btn.active {
+            color: var(--accent);
+            border-color: var(--accent);
+            background: rgba(0,212,255,0.05);
+        }
+
+        /* ── Rules table ── */
+        .rules-table {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .table-header {
+            display: grid;
+            grid-template-columns: 40px 100px 1fr 100px 120px 80px 100px;
+            gap: 1rem;
+            padding: 0.75rem 1.5rem;
+            background: rgba(0,0,0,0.3);
+            border-bottom: 1px solid var(--border);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .rule-row {
+            display: grid;
+            grid-template-columns: 40px 100px 1fr 100px 120px 80px 100px;
+            gap: 1rem;
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            align-items: center;
+            transition: background 0.15s;
+        }
+
+        .rule-row:last-child { border-bottom: none; }
+        .rule-row:hover { background: rgba(255,255,255,0.02); }
+        .rule-row.disabled { opacity: 0.4; }
+
+        /* Toggle */
+        .toggle {
+            position: relative;
+            width: 32px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .toggle input { display: none; }
+
+        .toggle-track {
+            position: absolute;
+            inset: 0;
+            background: var(--border);
+            border-radius: 9px;
+            transition: background 0.2s;
+        }
+
+        .toggle input:checked + .toggle-track { background: var(--accent); }
+
+        .toggle-thumb {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background: white;
+            border-radius: 50%;
+            top: 3px;
+            left: 3px;
+            transition: transform 0.2s;
+        }
+
+        .toggle input:checked ~ .toggle-thumb { transform: translateX(14px); }
+
+        /* Rule ID */
+        .rule-id {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--accent);
+            font-weight: 500;
+        }
+
+        /* Rule name + description */
+        .rule-info .name {
+            font-size: 0.9rem;
+            font-weight: 500;
+            margin-bottom: 0.2rem;
+        }
+
+        .rule-info .desc {
+            font-size: 0.75rem;
+            color: var(--muted);
+            line-height: 1.4;
+        }
+
+        /* Category badge */
+        .category-badge {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .cat-auth   { background: rgba(124,58,237,0.15); color: #a78bfa; border: 1px solid rgba(124,58,237,0.3); }
+        .cat-web    { background: rgba(0,212,255,0.1);   color: var(--accent); border: 1px solid rgba(0,212,255,0.2); }
+        .cat-kernel { background: rgba(234,179,8,0.1);   color: #fbbf24; border: 1px solid rgba(234,179,8,0.2); }
+
+        /* Severity badge */
+        .severity-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.25rem 0.6rem;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .sev-CRITICAL { background: rgba(239,68,68,0.1);  color: var(--critical); border: 1px solid rgba(239,68,68,0.2); }
+        .sev-HIGH     { background: rgba(249,115,22,0.1); color: var(--high);     border: 1px solid rgba(249,115,22,0.2); }
+        .sev-MEDIUM   { background: rgba(234,179,8,0.1);  color: var(--medium);   border: 1px solid rgba(234,179,8,0.2); }
+        .sev-LOW      { background: rgba(34,197,94,0.1);  color: var(--low);      border: 1px solid rgba(34,197,94,0.2); }
+
+        /* MITRE tag */
+        .mitre-tag {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
+            color: var(--muted);
+        }
+
+        /* Actions */
+        .actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn-edit {
+            padding: 0.3rem 0.6rem;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--muted);
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .btn-edit:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+            background: rgba(0,212,255,0.05);
+        }
+
+        /* ── Modal ── */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(4px);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.open { display: flex; }
+
+        .modal {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 2rem;
+            width: 90%;
+            max-width: 520px;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+            animation: slideUp 0.2s ease;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to   { transform: translateY(0);    opacity: 1; }
+        }
+
+        .modal h2 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .modal-id {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--accent);
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.78rem;
+            color: var(--muted);
+            font-family: 'JetBrains Mono', monospace;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 0.4rem;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0.65rem 0.9rem;
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            outline: none;
+            transition: border-color 0.2s;
+            resize: vertical;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            border-color: var(--accent);
+        }
+
+        .form-group select option { background: var(--surface); }
+
+        .modal-actions {
+            display: flex;
+            gap: 0.75rem;
+            justify-content: flex-end;
+            margin-top: 1.5rem;
+        }
+
+        .btn-cancel {
+            padding: 0.6rem 1.2rem;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--muted);
+            cursor: pointer;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .btn-cancel:hover { color: var(--text); border-color: var(--text); }
+
+        .btn-save {
+            padding: 0.6rem 1.2rem;
+            background: var(--accent);
+            border: none;
+            border-radius: 6px;
+            color: #000;
+            cursor: pointer;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn-save:hover { background: #00b8d9; }
+
+        /* ── Toast ── */
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: var(--surface);
+            border: 1px solid var(--success);
+            border-radius: 8px;
+            padding: 0.75rem 1.25rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            color: var(--success);
+            z-index: 300;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        /* ── Empty state ── */
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--muted);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+
+        @media (max-width: 768px) {
+            .table-header, .rule-row {
+                grid-template-columns: 40px 1fr 80px;
+            }
+            .table-header .col-cat,
+            .table-header .col-sev,
+            .table-header .col-mitre,
+            .rule-row .category-badge,
+            .rule-row .severity-badge,
+            .rule-row .mitre-tag { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <a href="/" class="logo">
+        <div class="logo-dot"></div>
+        HomeLab SIEM
+    </a>
+    <span class="header-title">/ rule-editor</span>
+    <a href="/" class="nav-back">← Dashboard</a>
+</header>
+
+<main>
+    <div class="page-header">
+        <h1>Detection <span>Rules</span></h1>
+        <p>Manage, enable and configure SIEM detection rules without editing code.</p>
+    </div>
+
+    <div class="stats-bar" id="statsBar"></div>
+
+    <div class="toolbar">
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Search rules..." oninput="filterRules()">
+        </div>
+        <button class="filter-btn active" onclick="setFilter('all', this)">All</button>
+        <button class="filter-btn" onclick="setFilter('auth', this)">Auth</button>
+        <button class="filter-btn" onclick="setFilter('web', this)">Web</button>
+        <button class="filter-btn" onclick="setFilter('kernel', this)">Kernel</button>
+    </div>
+
+    <div class="rules-table">
+        <div class="table-header">
+            <span></span>
+            <span>ID</span>
+            <span>Rule</span>
+            <span class="col-cat">Category</span>
+            <span class="col-sev">Severity</span>
+            <span class="col-mitre">MITRE</span>
+            <span>Actions</span>
+        </div>
+        <div id="rulesBody"></div>
+    </div>
+</main>
+
+<!-- Edit Modal -->
+<div class="modal-overlay" id="editModal">
+    <div class="modal">
+        <h2 id="modalTitle">Edit Rule</h2>
+        <div class="modal-id" id="modalId"></div>
+        <div class="form-group">
+            <label>Rule Name</label>
+            <input type="text" id="editName">
+        </div>
+        <div class="form-group">
+            <label>Description</label>
+            <textarea id="editDesc" rows="3"></textarea>
+        </div>
+        <div class="form-group">
+            <label>Severity</label>
+            <select id="editSeverity">
+                <option value="CRITICAL">CRITICAL</option>
+                <option value="HIGH">HIGH</option>
+                <option value="MEDIUM">MEDIUM</option>
+                <option value="LOW">LOW</option>
+            </select>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+            <button class="btn-save" onclick="saveRule()">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+    let allRules = [];
+    let disabledRules = JSON.parse(localStorage.getItem('disabled_rules') || '[]');
+    let editingRule = null;
+    let currentFilter = 'all';
+
+    async function loadRules() {
+        try {
+            const res = await fetch('/api/rules');
+            allRules = await res.json();
+            renderStats();
+            renderRules();
+        } catch (e) {
+            document.getElementById('rulesBody').innerHTML =
+                '<div class="empty-state">Failed to load rules — is the SIEM running?</div>';
+        }
+    }
+
+    function renderStats() {
+        const total    = allRules.length;
+        const active   = allRules.filter(r => !disabledRules.includes(r.id)).length;
+        const critical = allRules.filter(r => r.severity === 'CRITICAL').length;
+        const high     = allRules.filter(r => r.severity === 'HIGH').length;
+
+        document.getElementById('statsBar').innerHTML = `
+            <div class="stat-chip"><div class="dot" style="background:#64748b"></div>${total} Total</div>
+            <div class="stat-chip"><div class="dot" style="background:#00d4ff;animation:pulse 2s infinite"></div>${active} Active</div>
+            <div class="stat-chip"><div class="dot" style="background:#ef4444"></div>${critical} Critical</div>
+            <div class="stat-chip"><div class="dot" style="background:#f97316"></div>${high} High</div>
+        `;
+    }
+
+    function renderRules() {
+        const query = document.getElementById('searchInput').value.toLowerCase();
+        const filtered = allRules.filter(r => {
+            const matchFilter = currentFilter === 'all' || r.category === currentFilter;
+            const matchSearch = !query ||
+                r.id.toLowerCase().includes(query) ||
+                r.name.toLowerCase().includes(query) ||
+                (r.description || '').toLowerCase().includes(query);
+            return matchFilter && matchSearch;
+        });
+
+        if (!filtered.length) {
+            document.getElementById('rulesBody').innerHTML =
+                '<div class="empty-state">No rules match your search.</div>';
+            return;
+        }
+
+        document.getElementById('rulesBody').innerHTML = filtered.map(rule => {
+            const disabled = disabledRules.includes(rule.id);
+            return `
+            <div class="rule-row ${disabled ? 'disabled' : ''}" id="row-${rule.id}">
+                <label class="toggle">
+                    <input type="checkbox" ${disabled ? '' : 'checked'}
+                        onchange="toggleRule('${rule.id}', this.checked)">
+                    <div class="toggle-track"></div>
+                    <div class="toggle-thumb"></div>
+                </label>
+                <span class="rule-id">${rule.id}</span>
+                <div class="rule-info">
+                    <div class="name">${rule.name}</div>
+                    <div class="desc">${rule.description || ''}</div>
+                </div>
+                <span class="category-badge cat-${rule.category}">${rule.category}</span>
+                <span class="severity-badge sev-${rule.severity}">${rule.severity}</span>
+                <span class="mitre-tag">${rule.mitre || '—'}</span>
+                <div class="actions">
+                    <button class="btn-edit" onclick="openEdit('${rule.id}')">Edit</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function toggleRule(id, enabled) {
+        if (!enabled) {
+            if (!disabledRules.includes(id)) disabledRules.push(id);
+        } else {
+            disabledRules = disabledRules.filter(r => r !== id);
+        }
+        localStorage.setItem('disabled_rules', JSON.stringify(disabledRules));
+        const row = document.getElementById(`row-${id}`);
+        if (row) row.classList.toggle('disabled', !enabled);
+        renderStats();
+        showToast(`Rule ${id} ${enabled ? 'enabled' : 'disabled'}`);
+    }
+
+    function setFilter(cat, btn) {
+        currentFilter = cat;
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderRules();
+    }
+
+    function filterRules() { renderRules(); }
+
+    function openEdit(id) {
+        editingRule = allRules.find(r => r.id === id);
+        if (!editingRule) return;
+        document.getElementById('modalTitle').textContent = 'Edit Rule';
+        document.getElementById('modalId').textContent = editingRule.id;
+        document.getElementById('editName').value = editingRule.name;
+        document.getElementById('editDesc').value = editingRule.description || '';
+        document.getElementById('editSeverity').value = editingRule.severity;
+        document.getElementById('editModal').classList.add('open');
+    }
+
+    function closeModal() {
+        document.getElementById('editModal').classList.remove('open');
+        editingRule = null;
+    }
+
+    function saveRule() {
+        if (!editingRule) return;
+        editingRule.name        = document.getElementById('editName').value;
+        editingRule.description = document.getElementById('editDesc').value;
+        editingRule.severity    = document.getElementById('editSeverity').value;
+
+        // Update row in place
+        const row = document.getElementById(`row-${editingRule.id}`);
+        if (row) {
+            row.querySelector('.rule-info .name').textContent = editingRule.name;
+            row.querySelector('.rule-info .desc').textContent = editingRule.description;
+            const sev = row.querySelector('.severity-badge');
+            sev.className = `severity-badge sev-${editingRule.severity}`;
+            sev.textContent = editingRule.severity;
+        }
+        renderStats();
+        closeModal();
+        showToast(`Rule ${editingRule.id} updated`);
+    }
+
+    function showToast(msg) {
+        const t = document.getElementById('toast');
+        t.textContent = '✓ ' + msg;
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 2500);
+    }
+
+    // Close modal on overlay click
+    document.getElementById('editModal').addEventListener('click', function(e) {
+        if (e.target === this) closeModal();
+    });
+
+    loadRules();
+</script>
+</body>
+</html>

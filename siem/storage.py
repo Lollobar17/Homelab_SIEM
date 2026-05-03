@@ -126,12 +126,22 @@ def store_event(event: dict) -> int:
 #  Read path
 # ──────────────────────────────────────────────
 
-def get_recent_events(limit: int = 200, category: str = None) -> list[dict]:
+def get_recent_events(limit: int = 200, category: str = None, source: str = None) -> list[dict]:
     conn = _get_conn()
-    if category:
+    if category and source:
+        rows = conn.execute(
+            "SELECT * FROM events WHERE category=? AND lower(source)=lower(?) ORDER BY id DESC LIMIT ?",
+            (category, source, limit)
+        ).fetchall()
+    elif category:
         rows = conn.execute(
             "SELECT * FROM events WHERE category=? ORDER BY id DESC LIMIT ?",
             (category, limit)
+        ).fetchall()
+    elif source:
+        rows = conn.execute(
+            "SELECT * FROM events WHERE lower(source)=lower(?) ORDER BY id DESC LIMIT ?",
+            (source, limit)
         ).fetchall()
     else:
         rows = conn.execute(
@@ -207,3 +217,27 @@ def _row_to_event(row) -> dict:
     except Exception:
         d["fields"] = {}
     return d
+
+
+def get_rule_stats() -> list[dict]:
+    """
+    Return firing statistics for each rule.
+    Shows how many times each rule has triggered (for rule effectiveness analysis).
+    """
+    conn = _get_conn()
+    rows = conn.execute("""
+        SELECT rule_id, rule_name, severity, COUNT(*) as firing_count
+        FROM alerts
+        GROUP BY rule_id
+        ORDER BY firing_count DESC
+        LIMIT 20
+    """).fetchall()
+    return [
+        {
+            "rule_id": r["rule_id"],
+            "rule_name": r["rule_name"],
+            "severity": r["severity"],
+            "firing_count": r["firing_count"],
+        }
+        for r in rows
+    ]

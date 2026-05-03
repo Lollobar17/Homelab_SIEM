@@ -339,9 +339,12 @@ td { padding: 12px 18px; vertical-align: middle; }
     <div class="nav-item" onclick="showTab('events', this)">
       <span class="nav-icon">≡</span> Events
     </div>
-    <div class="nav-section-label">Config</div>
+<div class="nav-section-label">Config</div>
     <div class="nav-item" onclick="showTab('rules', this)">
       <span class="nav-icon">◈</span> Rules
+    </div>
+    <div class="nav-item" onclick="showTab('rule-stats', this)">
+      <span class="nav-icon">◉</span> Rule Stats
     </div>
   </nav>
 
@@ -442,7 +445,7 @@ td { padding: 12px 18px; vertical-align: middle; }
       </div>
     </div>
 
-    <!-- RULES -->
+<!-- RULES -->
     <div id="tab-rules" class="tab-section">
       <div class="page-header">
         <div class="page-title">Detection Rules</div>
@@ -453,6 +456,52 @@ td { padding: 12px 18px; vertical-align: middle; }
         <table>
           <thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Severity</th><th>MITRE</th></tr></thead>
           <tbody id="rulesTbody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- RULE STATS -->
+    <div id="tab-rule-stats" class="tab-section">
+      <div class="page-header">
+        <div class="page-title">Rule Effectiveness</div>
+        <div class="page-sub">Top firing rules</div>
+      </div>
+      <div class="kpi-grid">
+        <div class="kpi ok">
+          <div class="kpi-label">Total Rules</div>
+          <div class="kpi-value" id="kpi-total-rules">–</div>
+          <div class="kpi-sub">configured</div>
+        </div>
+        <div class="kpi crit">
+          <div class="kpi-label">Most Firing</div>
+          <div class="kpi-value" id="kpi-top-rule">–</div>
+          <div class="kpi-sub" id="kpi-top-rule-count">0 alerts</div>
+        </div>
+        <div class="kpi med">
+          <div class="kpi-label">Rules Fired</div>
+          <div class="kpi-value" id="kpi-rules-fired">–</div>
+          <div class="kpi-sub">with alerts</div>
+        </div>
+        <div class="kpi high">
+          <div class="kpi-label">Avg per Rule</div>
+          <div class="kpi-value" id="kpi-avg-firing">–</div>
+          <div class="kpi-sub">alerts each</div>
+        </div>
+      </div>
+      <div class="table-card">
+        <div class="table-header">
+          <div class="card-title">Rule firing statistics</div>
+          <div class="filter-row">
+            <button class="filter-btn active" onclick="filterRuleStats('all',this)">All</button>
+            <button class="filter-btn sev-critical" onclick="filterRuleStats('CRITICAL',this)">Critical</button>
+            <button class="filter-btn sev-high" onclick="filterRuleStats('HIGH',this)">High</button>
+            <button class="filter-btn sev-medium" onclick="filterRuleStats('MEDIUM',this)">Medium</button>
+            <button class="filter-btn sev-low" onclick="filterRuleStats('LOW',this)">Low</button>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Rank</th><th>Rule ID</th><th>Name</th><th>Severity</th><th>Fired</th><th>Effectiveness</th></tr></thead>
+          <tbody id="ruleStatsTbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -473,8 +522,9 @@ function showTab(name, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
   el.classList.add('active');
-  if (name === 'rules')  loadRules();
+if (name === 'rules')  loadRules();
   if (name === 'events') loadEvents();
+  if (name === 'rule-stats') loadRuleStats();
   if (name === 'alerts') loadAlerts();
 }
 
@@ -580,6 +630,47 @@ async function loadRules() {
   const rules = await fetch('/api/rules').then(r => r.json());
   document.getElementById('rules-count').textContent = `${rules.length} rules loaded`;
   document.getElementById('rulesTbody').innerHTML = rules.map(r => `<tr><td class="rule-id">${r.id}</td><td style="font-weight:600">${r.name}</td><td style="color:var(--muted);font-size:12px">${r.description}</td><td><span class="badge badge-${r.severity}">${r.severity}</span></td><td>${r.mitre?`<span class="mitre">${r.mitre}</span>`:'–'}</td></tr>`).join('');
+}
+
+let allRuleStats = [];
+async function loadRuleStats() {
+  allRuleStats = await fetch('/api/rules/stats').then(r => r.json());
+  renderRuleStats(allRuleStats);
+
+  // KPIs
+  const rules = await fetch('/api/rules').then(r => r.json());
+  document.getElementById('kpi-total-rules').textContent = rules.length;
+
+  if (allRuleStats.length) {
+    document.getElementById('kpi-top-rule').textContent = allRuleStats[0].rule_id || '–';
+    document.getElementById('kpi-top-rule-count').textContent = `${allRuleStats[0].firing_count} alerts`;
+    document.getElementById('kpi-rules-fired').textContent = allRuleStats.length;
+    const total = allRuleStats.reduce((a, b) => a + b.firing_count, 0);
+    document.getElementById('kpi-avg-firing').textContent = (total / allRuleStats.length).toFixed(1);
+  } else {
+    document.getElementById('kpi-top-rule').textContent = '–';
+    document.getElementById('kpi-top-rule-count').textContent = '0 alerts';
+    document.getElementById('kpi-rules-fired').textContent = '0';
+    document.getElementById('kpi-avg-firing').textContent = '0';
+  }
+}
+function filterRuleStats(sev, btn) {
+  document.querySelectorAll('#tab-rule-stats .filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderRuleStats(sev === 'all' ? allRuleStats : allRuleStats.filter(r => r.severity === sev));
+}
+function renderRuleStats(data) {
+  const maxFire = data.length ? Math.max(...data.map(r => r.firing_count)) : 1;
+  document.getElementById('ruleStatsTbody').innerHTML = data.length
+    ? data.map((r, i) => `<tr>
+      <td style="color:var(--muted)">#${i+1}</td>
+      <td class="rule-id">${r.rule_id}</td>
+      <td style="font-weight:600">${r.rule_name}</td>
+      <td><span class="badge badge-${r.severity}">${r.severity}</span></td>
+      <td style="font-family:var(--font-mono)">${r.firing_count}</td>
+      <td><div class="ip-bar-bg"><div class="ip-bar-fill" style="width:${Math.round(r.firing_count/maxFire*100)}%"></div></div></td>
+    </tr>`).join('')
+    : '<tr><td colspan="6" class="empty">No rule statistics yet — alerts will generate data</td></tr>';
 }
 
 function fmtTime(ts) {

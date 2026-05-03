@@ -7,6 +7,7 @@ import os
 import re
 import time
 import logging
+import threading
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from siem.geoip import lookup as geoip_lookup
@@ -20,16 +21,19 @@ logger = logging.getLogger("siem.detector")
 
 _counters: dict[str, deque] = defaultdict(lambda: deque())   # key → list of timestamps
 _WINDOW = 60   # seconds for sliding-window rules
+_COUNTER_LOCK = threading.Lock()
 
 
-def _count_recent(key: str, now: float, window: int = _WINDOW) -> int:
-    """Return how many events with `key` occurred in the last `window` seconds."""
-    dq = _counters[key]
-    cutoff = now - window
-    while dq and dq[0] < cutoff:
-        dq.popleft()
-    dq.append(now)
-    return len(dq)
+def _count_recent(key: str, now: float, window: int = _WINDOW, record: bool = True) -> int:
+    """Return count for `key` in `window` seconds; optionally record current event."""
+    with _COUNTER_LOCK:
+        dq = _counters[key]
+        cutoff = now - window
+        while dq and dq[0] < cutoff:
+            dq.popleft()
+        if record:
+            dq.append(now)
+        return len(dq)
 
 
 # ──────────────────────────────────────────────
@@ -137,7 +141,8 @@ RULES = [
         "threshold": lambda e: _count_recent(
             f"ssh_fail:{e['fields'].get('src_ip','unknown')}",
             time.time(),
-            window=300
+            window=300,
+            record=False
         ) >= 3,
     },
 
@@ -277,8 +282,13 @@ def analyze_event(event: dict) -> list[dict]:
 def _discord_notify_if_configured(alert: dict):
     """Send Discord notification if webhook is configured."""
     webhook = os.getenv("DISCORD_WEBHOOK_URL", "")
-    if webhook:
-        discord_notify(alert, webhook_url=webhook, min_severity="HIGH")
+    if not webhook:
+        logger.debug("[Discord] Skipping notification — DISCORD_WEBHOOK_URL not set")
+        return
+    logger.info(f"[Discord] Sending alert {alert.get('rule')} to webhook …")
+    ok = discord_notify(alert, webhook_url=webhook, min_severity="HIGH")
+    if not ok:
+        logger.warning(f"[Discord] Notification failed for {alert.get('rule')}")
 
 def get_rules() -> list[dict]:
     """Return rule metadata (no lambdas) for the API."""

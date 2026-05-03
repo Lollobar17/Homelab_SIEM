@@ -6,16 +6,37 @@ Watches log files and a UDP syslog socket for incoming events.
 import os
 import re
 import time
+import json
 import socket
 import threading
 import logging
 from datetime import datetime
 from pathlib import Path
+from collections import defaultdict, deque
 from urllib.parse import unquote
 from siem.storage import store_event
 from siem.detector import analyze_event
 
 logger = logging.getLogger("siem.collector")
+
+_MAX_LINE_CHARS = 16384
+_RATE_WINDOW_SECONDS = 5
+_RATE_MAX_EVENTS_PER_SOURCE = 500
+_rate_counters = defaultdict(deque)
+_rate_lock = threading.Lock()
+
+
+def _allow_source_event(source: str, now: float) -> bool:
+    """Basic per-source rate limiter to avoid ingestion floods."""
+    with _rate_lock:
+        dq = _rate_counters[source]
+        cutoff = now - _RATE_WINDOW_SECONDS
+        while dq and dq[0] < cutoff:
+            dq.popleft()
+        if len(dq) >= _RATE_MAX_EVENTS_PER_SOURCE:
+            return False
+        dq.append(now)
+        return True
 
 # ──────────────────────────────────────────────
 #  File tail watcher
@@ -68,8 +89,14 @@ class SyslogReceiver(threading.Thread):
         logger.info(f"[Syslog] Listening on udp://{self.host}:{self.port}")
         while True:
             try:
-                data, addr = sock.recvfrom(4096)
+                data, addr = sock.recvfrom(8192)
                 line = data.decode("utf-8", errors="replace").strip()
+                if len(line) > _MAX_LINE_CHARS:
+                    logger.warning(
+                        f"[Syslog] Oversized datagram from {addr[0]}:{addr[1]} "
+                        f"({len(line)} chars), truncating to {_MAX_LINE_CHARS}"
+                    )
+                    line = line[:_MAX_LINE_CHARS]
                 _process_raw_line(line, source=f"syslog:{addr[0]}")
             except Exception as e:
                 logger.error(f"[Syslog] Receive error: {e}")
@@ -83,6 +110,15 @@ def _process_raw_line(raw: str, source: str):
     """Parse a raw log line into a structured event and run detection."""
     if not raw:
         return
+    if not _allow_source_event(source, time.time()):
+        logger.warning(f"[Collector] Dropping event from {source}: rate limit exceeded")
+        return
+    if len(raw) > _MAX_LINE_CHARS:
+        logger.warning(
+            f"[Collector] Oversized log line from {source} ({len(raw)} chars), "
+            f"truncating to {_MAX_LINE_CHARS}"
+        )
+        raw = raw[:_MAX_LINE_CHARS]
     # Strip ANSI escape codes
     raw = re.sub(r'\x1b\[[0-9;]*m', '', raw)
     
@@ -184,6 +220,26 @@ def parse_log_line(raw: str, source: str) -> dict:
         base["category"] = "kernel"
         base["fields"]["message"] = m.group("msg")
         return base
+
+    # ── Suricata eve.json ───────────────────────────────────────────────
+    if source == "suricata" and raw.strip().startswith("{"):
+        try:
+            event_data = json.loads(raw)
+            if event_data.get("event_type") == "alert":
+                alert = event_data.get("alert", {})
+                base["category"] = "suricata"
+                base["fields"] = {
+                    "signature": alert.get("signature", ""),
+                    "signature_id": alert.get("signature_id", 0),
+                    "src_ip": event_data.get("src_ip", ""),
+                    "dest_ip": event_data.get("dest_ip", ""),
+                    "proto": event_data.get("proto", ""),
+                    "http_method": alert.get("http", {}).get("http_method") if alert.get("http") else "",
+                    "http_uri": alert.get("http", {}).get("http_uri") if alert.get("http") else "",
+                }
+                return base
+        except (json.JSONDecodeError, TypeError, KeyError):
+            pass
 
     # ── Syslog with priority ─────────────────────────────────────────────
     m = re.match(r"<(?P<pri>\d+)>(?P<rest>.+)", raw)

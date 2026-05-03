@@ -17,6 +17,7 @@ Designed to learn cybersecurity concepts hands-on — log collection, threat det
 - [Architecture](#architecture)
 - [API Reference](#api-reference)
 - [Detection Rules](#detection-rules)
+- [Backup and Recovery](#backup-and-recovery)
 - [Security Assessment](#security-assessment)
 - [Configuration](#configuration)
 - [Project Structure](#project-structure)
@@ -34,8 +35,12 @@ Designed to learn cybersecurity concepts hands-on — log collection, threat det
 | **Threat Detection** | Rule engine with 8 built-in rules (SSH brute force, SQLi, traversal) |
 | **MITRE ATT&CK** | Every rule is mapped to a MITRE technique ID |
 | **Dashboard** | Live web UI — KPIs, timeline chart, alert table, event stream |
-| **REST API** | /api/events, /api/alerts, /api/stats, /api/ingest |
+| **REST API** | /api/events, /api/alerts, /api/stats, /api/ingest (supports source/category filters) |
 | **Demo Simulator** | Generate realistic fake logs without a real Linux system |
+| **Network Monitoring** | Suricata IDS integration with live `eve.json` ingestion |
+| **GeoIP Enrichment** | Adds geolocation metadata for alert source IPs |
+| **Discord Alerts** | Webhook notifications for HIGH/CRITICAL alerts |
+| **Docker Compose** | SIEM + Suricata multi-container deployment |
 
 ---
 
@@ -115,6 +120,22 @@ Ingest example: `curl -X POST http://localhost:5000/api/ingest -H "Content-Type:
 
 ---
 
+## Backup and Recovery
+
+Create a backup:
+
+`python scripts/backup_db.py`
+
+Restore a backup:
+
+`python scripts/restore_db.py --from backups/siem-YYYYMMDD-HHMMSS.db --force`
+
+Full operations guide:
+
+`docs/BACKUP_AND_RECOVERY.md`
+
+---
+
 ## Security Assessment
 
 > [!IMPORTANT]
@@ -189,11 +210,11 @@ Homelab_SIEM/
 - [x] Brute force volume correlation rule — T1110 (G-04)
 - [x] Flask access log parsing — web layer visibility (G-05, G-06)
 - [x] CRITICAL severity thresholds (G-07)
-- [ ] Network monitoring layer — Suricata/Zeek (G-01)
-- [ ] GeoIP lookup for source IPs
-- [ ] Discord / Telegram alert notifications
-- [ ] Docker Compose setup
-- [ ] Rule editor in dashboard UI
+- [x] Network monitoring layer — Suricata integration (G-01)
+- [x] GeoIP lookup for source IPs
+- [x] Discord webhook notifications
+- [x] Docker Compose setup
+- [X] Rule editor in dashboard UI
 
 ---
 

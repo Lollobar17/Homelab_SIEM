@@ -1,0 +1,48 @@
+services:
+  siem:
+    build: .
+    container_name: homelab-siem
+    restart: unless-stopped
+
+    ports:
+      - "5000:5000"       # Web dashboard + REST API
+      - "5140:5140/udp"   # UDP syslog receiver
+
+    volumes:
+      - siem-data:/app/data          # SQLite database — persists between restarts
+      - siem-logs:/app/logs          # Flask access logs
+      - ./suricata-logs:/app/suricata-logs:ro  # Read Suricata output logs
+      - ./config.json:/app/config.json:ro  # Mount config read-only
+
+    environment:
+      - SIEM_DEBUG=0
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+  
+  suricata:
+    image: jasonish/suricata
+    container_name: suricata_ids
+    network_mode: "service:siem"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    volumes:
+      - ./suricata-logs:/var/log/suricata
+      - ./suricata-rules:/etc/suricata/rules
+      - ./suricata.yaml:/etc/suricata/suricata.yaml
+    command: -c /etc/suricata/suricata.yaml -i eth0 -l /var/log/suricata
+    depends_on:
+      - siem
+
+volumes:
+  siem-data:
+    driver: local
+  siem-logs:
+    driver: local

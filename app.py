@@ -16,6 +16,7 @@ from siem.storage import (
     get_recent_alerts,
     get_recent_events,
     get_stats,
+    get_rule_stats,
     store_event,
 )
 
@@ -48,10 +49,12 @@ DEFAULT_CONFIG = {
         {"path": "/var/log/syslog",      "name": "syslog"},
         {"path": "/var/log/apache2/access.log", "name": "apache"},
         {"path": "/var/log/nginx/access.log",   "name": "nginx"},
-        {"path": "logs/flask_access.log", "name": "flask"}
+        {"path": "logs/flask_access.log", "name": "flask"},
+        {"path": "suricata-logs/eve.json", "name": "suricata"}
     ],
     "web_host": "0.0.0.0",
     "web_port": 5000,
+    "discord_webhook": "",
 }
 
 _config_path = Path("config.json")
@@ -61,6 +64,12 @@ if _config_path.exists():
     CONFIG = {**DEFAULT_CONFIG, **user_cfg}
 else:
     CONFIG = DEFAULT_CONFIG
+
+# Auto-export Discord webhook to env so detector.py picks it up
+if CONFIG.get("discord_webhook"):
+    os.environ["DISCORD_WEBHOOK_URL"] = CONFIG["discord_webhook"]
+    logger.info("[Config] Discord webhook loaded from config.json")
+
 
 # ──────────────────────────────────────────────
 #  Flask app
@@ -76,6 +85,13 @@ def dashboard():
     return render_template("dashboard.html")
 
 
+# ── Rule Editor ───────────────────────────────
+
+@app.route("/rules")
+def rules_editor():
+    return render_template("rules.html")
+
+
 # ── REST API ─────────────────────────────────
 
 @app.route("/api/stats")
@@ -87,7 +103,8 @@ def api_stats():
 def api_events():
     limit    = int(request.args.get("limit", 200))
     category = request.args.get("category")
-    return jsonify(get_recent_events(limit=limit, category=category))
+    source   = request.args.get("source")
+    return jsonify(get_recent_events(limit=limit, category=category, source=source))
 
 
 @app.route("/api/alerts")
@@ -100,6 +117,12 @@ def api_alerts():
 @app.route("/api/rules")
 def api_rules():
     return jsonify(get_rules())
+
+
+@app.route("/api/rules/stats")
+def api_rules_stats():
+    """Return detection rule firing statistics."""
+    return jsonify(get_rule_stats())
 
 
 @app.route("/api/ingest", methods=["POST"])
@@ -166,7 +189,7 @@ def vulnerable_search():
 
 if __name__ == "__main__":
     logger.info("Starting HomeLab SIEM …")
-    start_collectors(CONFIG)
+    start_collectors(CONFIG) 
     app.run(
         host=CONFIG["web_host"],
         port=CONFIG["web_port"],

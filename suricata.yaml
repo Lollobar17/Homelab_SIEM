@@ -1,0 +1,49 @@
+%YAML 1.1
+---
+vars:
+  address-groups:
+    HOME_NET: "[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12]"
+    EXTERNAL_NET: "!$HOME_NET"
+
+default-log-dir: /var/log/suricata
+
+stats:
+  enabled: yes
+  interval: 8
+
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: eve.json
+      types:
+        - alert:
+            payload: yes
+            payload-printable: yes
+            packet: yes
+            files: yes
+        - anomaly:
+            pkt: yes
+        - http:
+            extended: yes
+        - dns:
+            query: yes
+        - flow: yes
+        - stats: yes
+  - fast:
+      enabled: yes
+      filename: fast.log
+  - stats:
+      enabled: yes
+      filename: stats.log
+
+rule-files:
+  - /etc/suricata/rules/rules.rules
+
+af-packet:
+  - interface: eth0
+    cluster-id: 99
+    cluster-type: cluster_flow
+    defrag: yes
+    use-mmap: yes
+
