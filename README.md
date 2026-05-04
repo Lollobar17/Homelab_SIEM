@@ -6,6 +6,7 @@ Designed to learn cybersecurity concepts hands-on — log collection, threat det
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-3.0-black?style=flat&logo=flask)
 ![SQLite](https://img.shields.io/badge/Storage-SQLite-003B57?style=flat&logo=sqlite)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat&logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat)
 
 ---
@@ -17,9 +18,9 @@ Designed to learn cybersecurity concepts hands-on — log collection, threat det
 - [Architecture](#architecture)
 - [API Reference](#api-reference)
 - [Detection Rules](#detection-rules)
-- [Backup and Recovery](#backup-and-recovery)
 - [Security Assessment](#security-assessment)
 - [Configuration](#configuration)
+- [Backup and Recovery](#backup-and-recovery)
 - [Project Structure](#project-structure)
 - [Roadmap](#roadmap)
 - [License](#license)
@@ -31,16 +32,18 @@ Designed to learn cybersecurity concepts hands-on — log collection, threat det
 | Feature | Details |
 |---|---|
 | **Log Collection** | Tails local files + listens on UDP syslog (port 5140) |
-| **Log Parsing** | SSH/auth, Apache/Nginx access logs, kernel/dmesg, syslog |
-| **Threat Detection** | Rule engine with 8 built-in rules (SSH brute force, SQLi, traversal) |
-| **MITRE ATT&CK** | Every rule is mapped to a MITRE technique ID |
-| **Dashboard** | Live web UI — KPIs, timeline chart, alert table, event stream |
-| **REST API** | /api/events, /api/alerts, /api/stats, /api/ingest (supports source/category filters) |
-| **Demo Simulator** | Generate realistic fake logs without a real Linux system |
-| **Network Monitoring** | Suricata IDS integration with live `eve.json` ingestion |
-| **GeoIP Enrichment** | Adds geolocation metadata for alert source IPs |
-| **Discord Alerts** | Webhook notifications for HIGH/CRITICAL alerts |
-| **Docker Compose** | SIEM + Suricata multi-container deployment |
+| **Log Parsing** | SSH/auth, Apache/Nginx, Flask/Werkzeug, kernel/dmesg, syslog |
+| **Threat Detection** | Rule engine with 11 built-in rules mapped to MITRE ATT&CK |
+| **MITRE ATT&CK** | Every rule mapped to a technique ID |
+| **Dashboard** | Live web UI — KPIs, timeline, alert table, event stream, rule stats |
+| **Rule Editor** | Web UI at /rules — toggle, edit and filter rules without touching code |
+| **REST API** | /api/events, /api/alerts, /api/stats, /api/rules, /api/rules/stats, /api/ingest |
+| **Network Monitoring** | Suricata IDS integration via live eve.json ingestion — closes G-01 |
+| **GeoIP Enrichment** | Geographic metadata for every alert source IP via ip-api.com |
+| **Discord Alerts** | Webhook notifications for HIGH and CRITICAL alerts with rich embeds |
+| **Docker Compose** | Single-command deployment with persistent volumes and health check |
+| **Backup & Recovery** | Automated database backup and restore scripts |
+| **Demo Simulator** | Generates realistic fake logs with --stress-test mode for threshold validation |
 
 ---
 
@@ -49,6 +52,8 @@ Designed to learn cybersecurity concepts hands-on — log collection, threat det
 > [!TIP]
 > The data/siem.db SQLite database is created automatically on first run.
 > The dashboard is optimized for Full HD (1920x1080) displays or higher.
+
+**Option A — Local Python**
 
 1. Clone the repository
 
@@ -68,16 +73,22 @@ Designed to learn cybersecurity concepts hands-on — log collection, threat det
 
 `python simulate_logs.py`
 
+**Option B — Docker Compose**
+
+`docker-compose up -d`
+
+The SIEM will be available at `http://localhost:5000`.
+
 ---
 
 ## Architecture
 
 The SIEM is composed of four layers:
 
-- **Collectors** — file tailers and UDP syslog receiver feed raw log lines into the pipeline
-- **Parser** — collector.py normalizes each line into a structured event object
-- **Rule Engine** — detector.py evaluates each event against the detection ruleset and generates alerts
-- **Storage + API** — storage.py persists events and alerts to SQLite, app.py exposes them via REST API and dashboard
+- **Collectors** — file tailers, UDP syslog receiver and Suricata eve.json watcher feed raw events into the pipeline
+- **Parser** — collector.py normalizes each line into a structured event object with ANSI stripping
+- **Rule Engine** — detector.py evaluates each event against the detection ruleset, generates alerts with GeoIP enrichment and sends Discord notifications
+- **Storage + API** — storage.py persists events and alerts to SQLite with automatic schema migration, app.py exposes them via REST API and dashboard
 
 ---
 
@@ -86,22 +97,23 @@ The SIEM is composed of four layers:
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | /api/stats | KPIs, timeline, top IPs |
-| GET | /api/events?limit=N&category=auth | Recent events |
+| GET | /api/events?limit=N&category=auth&source=flask | Recent events with optional filters |
 | GET | /api/alerts?limit=N&severity=HIGH | Recent alerts |
 | GET | /api/rules | All detection rules |
-| POST | /api/ingest | Manually ingest a log line |
+| GET | /api/rules/stats | Rule effectiveness statistics by category and severity |
 | GET | /api/health | Health check |
+| POST | /api/ingest | Manually ingest a log line |
+| GET | /rules | Rule Editor web UI |
 
-Ingest example: `curl -X POST http://localhost:5000/api/ingest -H "Content-Type: application/json" -d '{"raw": "Failed password for root from 1.2.3.4 port 22 ssh2", "source": "myserver"}'`
+Ingest example: `curl -X POST http://localhost:5000/api/ingest -H "Content-Type: application/json" -d '{"raw": "Failed password for root from 1.2.3.4 port 22 ssh2", "source": "auth"}'`
 
 ---
 
 ## Detection Rules
 
 > [!IMPORTANT]
-> All rules are mapped to MITRE ATT&CK techniques. Rule AUTH-002 was
-> updated in v1.1.0 following a structured penetration testing assessment
-> — see the Security Assessment section for details.
+> All rules are mapped to MITRE ATT&CK techniques. Rules can be toggled,
+> filtered and edited via the Rule Editor at /rules without touching code.
 
 | ID | Name | Severity | MITRE |
 |---|---|---|---|
@@ -109,30 +121,18 @@ Ingest example: `curl -X POST http://localhost:5000/api/ingest -H "Content-Type:
 | AUTH-002 | Root Login Attempt | HIGH | T1110 |
 | AUTH-003 | Successful Root Login | CRITICAL | T1078.003 |
 | AUTH-004 | Sudo Privilege Escalation | MEDIUM | T1548.003 |
-| WEB-001 | Directory Traversal | MEDIUM | T1083 |
-| WEB-002 | Web Brute Force (4xx flood) | MEDIUM | T1110 |
+| AUTH-005 | SSH Brute Force — High Volume | CRITICAL | T1110 |
+| AUTH-006 | Successful Login After Failures | CRITICAL | T1110 |
+| WEB-001 | HTTP Scanner / Directory Traversal | MEDIUM | T1083 |
+| WEB-002 | Web Brute Force (4xx Flood) | MEDIUM | T1110 |
 | WEB-003 | SQL Injection Attempt | HIGH | T1190 |
+| WEB-004 | Web Brute Force — High Volume | CRITICAL | T1110 |
 | SYS-001 | OOM Killer Activated | MEDIUM | — |
+| SYS-002 | Segmentation Fault | LOW | — |
 
 > [!TIP]
 > To add a custom rule, open siem/detector.py and add an entry to the
 > RULES list with id, name, severity, category, mitre, match and threshold fields.
-
----
-
-## Backup and Recovery
-
-Create a backup:
-
-`python scripts/backup_db.py`
-
-Restore a backup:
-
-`python scripts/restore_db.py --from backups/siem-YYYYMMDD-HHMMSS.db --force`
-
-Full operations guide:
-
-`docs/BACKUP_AND_RECOVERY.md`
 
 ---
 
@@ -141,17 +141,29 @@ Full operations guide:
 > [!IMPORTANT]
 > This SIEM was subjected to a structured penetration testing assessment
 > using Nmap, Hydra, SQLmap and manual path traversal testing.
-> The assessment identified 7 detection gaps and directly informed
-> the improvements released in v1.1.0.
+> The assessment identified 7 detection gaps — all resolved across v1.1.0 through v1.5.0.
 
-| Scenario | Tool | MITRE | Detection Result |
+### Initial Assessment (v1.0.0)
+
+| Scenario | Tool | MITRE | Detection |
 |---|---|---|---|
 | Network Scanning | Nmap | T1046 | Not detected |
-| SSH Brute Force | Hydra | T1110 | Partial — 3 HIGH alerts |
+| SSH Brute Force | Hydra | T1110 | Partial |
 | SQL Injection | SQLmap | T1190 | Not detected |
 | Path Traversal | Manual | T1083 | Not detected |
 
-**Overall detection rate: 25% — improvement in progress**
+**Detection Rate: 25%**
+
+### Post-Remediation (v1.5.0)
+
+| Scenario | Tool | MITRE | Detection | Severity |
+|---|---|---|---|---|
+| Network Scanning | Nmap/Suricata | T1046 | Detected | HIGH |
+| SSH Brute Force | Hydra | T1110 | Detected | CRITICAL |
+| SQL Injection | SQLmap | T1190 | Detected | HIGH |
+| Path Traversal | Manual | T1083 | Detected | MEDIUM |
+
+**Detection Rate: 100%**
 
 > [!NOTE]
 > Full assessment documentation, gap analysis and final security report
@@ -165,7 +177,7 @@ Full operations guide:
 
 Edit config.json to customize log sources and ports:
 
-`syslog_enabled` — enable/disable UDP syslog listener
+`syslog_enabled` — enable/disable UDP syslog listener (default: true)
 
 `syslog_port` — default 5140
 
@@ -173,37 +185,71 @@ Edit config.json to customize log sources and ports:
 
 `web_port` — default 5000
 
-Send syslog from another host: `logger -n 127.0.0.1 -P 5140 --udp "test message"`
+`discord_webhook` — Discord webhook URL for alert notifications
+
+`discord_min_severity` — minimum severity for Discord notifications (default: HIGH)
+
+> [!IMPORTANT]
+> config.json is excluded from version control via .gitignore.
+> Never commit sensitive values like webhook URLs to the repository.
+
+---
+
+## Backup and Recovery
+
+Create a backup:
+
+`python scripts/backup_db.py`
+
+Restore a backup:
+
+`python scripts/restore_db.py --from backups/siem-YYYYMMDD-HHMMSS.db --force`
+
+Full operations guide: `docs/BACKUP_AND_RECOVERY.md`
 
 ---
 
 ## Project Structure
 
-```
 Homelab_SIEM/
-├── app.py               # Flask app + API routes
-├── config.json          # User configuration
+├── app.py                    # Flask app + API routes
+├── config.json               # User configuration (excluded from git)
 ├── requirements.txt
-├── simulate_logs.py     # Demo log generator
-├── CHANGELOG.md         # Version history
+├── simulate_logs.py          # Demo log generator with --stress-test mode
+├── Dockerfile                # Container image definition
+├── docker-compose.yml        # Multi-container deployment
+├── .dockerignore             # Docker build exclusions
+├── CHANGELOG.md              # Version history
 ├── siem/
-│   ├── collector.py     # File tailer + UDP syslog + parser
-│   ├── detector.py      # Detection rule engine
-│   └── storage.py       # SQLite persistence layer
+│   ├── collector.py          # File tailer + UDP syslog + Flask log parser
+│   ├── detector.py           # Detection rule engine + GeoIP + Discord notify
+│   ├── storage.py            # SQLite persistence + auto-migration
+│   ├── geoip.py              # GeoIP lookup via ip-api.com with lru_cache
+│   ├── notifier.py           # Discord webhook notifications
+│   └── suricata_collector.py # Suricata eve.json live ingestion
 ├── templates/
-│   └── dashboard.html   # Single-page web dashboard
+│   ├── dashboard.html        # Single-page web dashboard
+│   └── rules.html            # Rule Editor web UI
+├── docs/
+│   ├── DISCORD_GUIDE.md      # Discord webhook setup guide
+│   ├── GEOIP_GUIDE.md        # GeoIP configuration guide
+│   ├── SYSLOG_GUIDE.md       # Syslog integration guide
+│   └── BACKUP_AND_RECOVERY.md # Backup and restore guide
+├── scripts/
+│   ├── backup_db.py          # Database backup script
+│   └── restore_db.py         # Database restore script
 └── data/
-    └── siem.db          # Auto-created SQLite database
-```
+    └── siem.db               # Auto-created SQLite database
+
 
 ---
 
 ## Roadmap
 
 - [x] Core SIEM — log collection, detection, dashboard
-- [x] 8 built-in detection rules with MITRE ATT&CK mapping
-- [x] REST API
-- [x] Demo simulator
+- [x] 11 built-in detection rules with MITRE ATT&CK mapping
+- [x] REST API with source and category filters
+- [x] Demo simulator with --stress-test mode
 - [x] Security assessment via Network Security Monitoring Lab
 - [x] Fix AUTH-002 MITRE classification (G-02)
 - [x] Add source_ip to alert schema (G-03)
@@ -214,7 +260,10 @@ Homelab_SIEM/
 - [x] GeoIP lookup for source IPs
 - [x] Discord webhook notifications
 - [x] Docker Compose setup
-- [X] Rule editor in dashboard UI
+- [x] Rule editor in dashboard UI
+- [x] Backup and recovery scripts
+- [x] Rate limiting on log ingestion
+- [x] WSL2 migration — resolved VirtualBox/Hyper-V conflict
 
 ---
 
@@ -222,6 +271,7 @@ Homelab_SIEM/
 
 - [MITRE ATT&CK](https://attack.mitre.org) — adversary tactics and techniques
 - [TryHackMe](https://tryhackme.com) — hands-on labs
+- [Suricata Documentation](https://suricata.readthedocs.io) — network IDS
 - [The Elastic SIEM Guide](https://www.elastic.co/what-is/siem)
 
 ---
