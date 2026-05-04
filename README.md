@@ -211,38 +211,37 @@ Full operations guide: `docs/BACKUP_AND_RECOVERY.md`
 
 ## Project Structure
 
+```text
 Homelab_SIEM/
-├── app.py                    # Flask app + API routes
-├── config.json               # User configuration (excluded from git)
+├── app.py                     # Flask app + API routes
+├── config.json                # User configuration (excluded from git)
 ├── requirements.txt
-├── simulate_logs.py          # Demo log generator with --stress-test mode
-├── Dockerfile                # Container image definition
-├── docker-compose.yml        # Multi-container deployment
-├── .dockerignore             # Docker build exclusions
-├── CHANGELOG.md              # Version history
+├── simulate_logs.py           # Demo log generator with --stress-test mode
+├── Dockerfile                 # Container image definition
+├── docker-compose.yml         # Multi-container deployment
+├── .dockerignore              # Docker build exclusions
+├── CHANGELOG.md               # Version history
 ├── siem/
-│   ├── collector.py          # File tailer + UDP syslog + Flask log parser
-│   ├── detector.py           # Detection rule engine + GeoIP + Discord notify
-│   ├── storage.py            # SQLite persistence + auto-migration
-│   ├── geoip.py              # GeoIP lookup via ip-api.com with lru_cache
-│   ├── notifier.py           # Discord webhook notifications
-│   └── suricata_collector.py # Suricata eve.json live ingestion
+│   ├── collector.py           # File tailer + UDP syslog + Flask log parser
+│   ├── detector.py            # Detection rule engine + GeoIP + Discord notify
+│   ├── storage.py             # SQLite persistence + auto-migration
+│   ├── geoip.py               # GeoIP lookup via ip-api.com with lru_cache
+│   ├── notifier.py            # Discord webhook notifications
+│   └── suricata_collector.py  # Suricata eve.json live ingestion
 ├── templates/
-│   ├── dashboard.html        # Single-page web dashboard
-│   └── rules.html            # Rule Editor web UI
+│   ├── dashboard.html         # Single-page web dashboard
+│   └── rules.html             # Rule Editor web UI
 ├── docs/
-│   ├── DISCORD_GUIDE.md      # Discord webhook setup guide
-│   ├── GEOIP_GUIDE.md        # GeoIP configuration guide
-│   ├── SYSLOG_GUIDE.md       # Syslog integration guide
+│   ├── DISCORD_GUIDE.md       # Discord webhook setup guide
+│   ├── GEOIP_GUIDE.md         # GeoIP configuration guide
+│   ├── SYSLOG_GUIDE.md        # Syslog integration guide
 │   └── BACKUP_AND_RECOVERY.md # Backup and restore guide
 ├── scripts/
-│   ├── backup_db.py          # Database backup script
-│   └── restore_db.py         # Database restore script
+│   ├── backup_db.py           # Database backup script
+│   └── restore_db.py          # Database restore script
 └── data/
-    └── siem.db               # Auto-created SQLite database
-
-
----
+    └── siem.db                # Auto-created SQLite database
+```
 
 ## Roadmap
 
