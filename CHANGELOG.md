@@ -36,12 +36,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 ### Changed
 
+### Changed
+
 - **/api/ingest** — updated to support filtering by source parameter
 
 - **Lab environment** migrated from VirtualBox to WSL2 + Docker
-  Resolved critical Hyper-V conflict (VERR_SSM_LOAD_CONFIG_MISMATCH).
-  Kali Linux now runs natively via WSL2 with direct Docker socket integration.
-  Full migration documentation in Google Docs technical report (2026-05-03).
+  Resolved Hyper-V conflict causing VM instability. Kali Linux now runs
+  natively via WSL2 with direct Docker socket integration, improving
+  stability and network visibility for penetration testing sessions.
 
 ---
 
