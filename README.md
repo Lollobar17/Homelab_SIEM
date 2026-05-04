@@ -217,9 +217,10 @@ Homelab_SIEM/
 ├── config.json                # User configuration (excluded from git)
 ├── requirements.txt
 ├── simulate_logs.py           # Demo log generator with --stress-test mode
+├── suricata.yaml              # Suricata configuration
 ├── Dockerfile                 # Container image definition
 ├── docker-compose.yml         # Multi-container deployment
-├── .dockerignore              # Docker build exclusions
+├── dockerignore               # Docker build exclusions
 ├── CHANGELOG.md               # Version history
 ├── siem/
 │   ├── collector.py           # File tailer + UDP syslog + Flask log parser
@@ -227,20 +228,25 @@ Homelab_SIEM/
 │   ├── storage.py             # SQLite persistence + auto-migration
 │   ├── geoip.py               # GeoIP lookup via ip-api.com with lru_cache
 │   ├── notifier.py            # Discord webhook notifications
-│   └── suricata_collector.py  # Suricata eve.json live ingestion
+│   └── test_discord.py        # Discord webhook test utility
+├── suricata-logs/             # Suricata eve.json output directory
+├── suricata-rules/            # Custom Suricata detection rules
 ├── templates/
 │   ├── dashboard.html         # Single-page web dashboard
 │   └── rules.html             # Rule Editor web UI
 ├── docs/
+│   ├── BACKUP_AND_RECOVERY.md # Backup and restore guide
 │   ├── DISCORD_GUIDE.md       # Discord webhook setup guide
 │   ├── GEOIP_GUIDE.md         # GeoIP configuration guide
-│   ├── SYSLOG_GUIDE.md        # Syslog integration guide
-│   └── BACKUP_AND_RECOVERY.md # Backup and restore guide
+│   ├── RULESTATS_GUIDE.md     # Rule statistics guide
+│   ├── SURICATA_SETUP.md      # Suricata integration setup guide
+│   └── SYSLOG_GUIDE.md        # Syslog integration guide
 ├── scripts/
 │   ├── backup_db.py           # Database backup script
 │   └── restore_db.py          # Database restore script
 └── data/
     └── siem.db                # Auto-created SQLite database
+
 ```
 
 ## Roadmap
