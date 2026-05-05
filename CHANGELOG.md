@@ -34,7 +34,6 @@ This project follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 - **docs/RULESTATS_GUIDE.md** — rule effectiveness statistics guide
 
-### Changed
 
 ### Changed
 
