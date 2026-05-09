@@ -8,6 +8,7 @@ import re
 import time
 import logging
 import threading
+import math
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from siem.geoip import lookup as geoip_lookup
@@ -34,6 +35,69 @@ def _count_recent(key: str, now: float, window: int = _WINDOW, record: bool = Tr
         if record:
             dq.append(now)
         return len(dq)
+
+
+# ──────────────────────────────────────────────
+#  TLS analysis helpers (used by NET rules)
+# ──────────────────────────────────────────────
+
+_KNOWN_BAD_JA3 = {
+    "e7d705a3286e19ea42f587b6e7359082",  # Dridex
+    "6734f37431670b3ab4292b8f60f29984",  # Trickbot
+    "1aa7bf845b0e18f9b627b5b36a48a553",  # Cobalt Strike
+    "72a589da586844d7f0818ce684948eea",  # Metasploit
+    "a0e9f5d64349fb13191bc781f81f42e1",  # Generic RAT
+}
+
+# TLS version hex values considered deprecated
+# 0x0301 = TLS 1.0, 0x0302 = TLS 1.1
+_DEPRECATED_TLS_HEX = {"0x0301", "0x0302"}
+
+
+def _shannon_entropy(s: str) -> float:
+    if not s:
+        return 0.0
+    freq: dict[str, int] = {}
+    for c in s:
+        freq[c] = freq.get(c, 0) + 1
+    n = len(s)
+    return -sum((f / n) * math.log2(f / n) for f in freq.values())
+
+
+def _extract_ja3_from_raw(raw: str) -> str:
+    """Extract ja3=<hash> value from a raw TLS_EVENT log line."""
+    m = re.search(r"ja3=([a-f0-9]{32})", raw)
+    return m.group(1) if m else ""
+
+
+def _extract_sni_from_raw(raw: str) -> str:
+    """Extract sni=<value> from a raw TLS_EVENT log line."""
+    m = re.search(r"sni=(\S+)", raw)
+    return m.group(1) if m else ""
+
+
+def _extract_tls_version_from_raw(raw: str) -> str:
+    """Extract tls_version=<value> from a raw TLS_EVENT log line."""
+    m = re.search(r"tls_version=(\S+)", raw)
+    return m.group(1) if m else ""
+
+
+def _is_deprecated_tls(raw: str) -> bool:
+    """
+    Returns True if the raw log line contains a deprecated TLS version.
+    Handles both human-readable (TLSv1, TLSv1.1) and hex formats (0x0301, 0x0302)
+    as exported by Wireshark GUI JSON.
+    """
+    ver = _extract_tls_version_from_raw(raw)
+    if not ver:
+        return False
+    # Hex format — Wireshark GUI JSON export
+    if ver in _DEPRECATED_TLS_HEX:
+        return True
+    # Human-readable format — Tshark or manual entries
+    if re.match(r"TLSv1(\s*$|\.1)", ver):
+        return True
+    return False
 
 
 # ──────────────────────────────────────────────
@@ -67,11 +131,11 @@ RULES = [
         "description": "Someone tried to log in as root via SSH.",
         "severity": "HIGH",
         "category": "auth",
-        "mitre": "T1110",  # G-02 fix: T1078 → T1110 (Brute Force is more accurate)
+        "mitre": "T1110",
         "match": lambda e: (
             e.get("category") == "auth"
-            and re.search(r"(invalid user root|failed.*root|root.*failed)", 
-                        e.get("fields", {}).get("message", ""), re.I) is not None
+            and re.search(r"(invalid user root|failed.*root|root.*failed)",
+                          e.get("fields", {}).get("message", ""), re.I) is not None
         ),
         "threshold": None,
     },
@@ -85,10 +149,10 @@ RULES = [
         "mitre": "T1078.003",
         "match": lambda e: (
             e.get("category") == "auth"
-            and re.search(r"accepted.*root", 
-            e.get("fields", {}).get("message", ""), re.I) is not None
+            and re.search(r"accepted.*root",
+                          e.get("fields", {}).get("message", ""), re.I) is not None
         ),
-        "threshold": None, 
+        "threshold": None,
     },
 
     {
@@ -107,7 +171,6 @@ RULES = [
     },
 
     # G-04: Brute force volume correlation rule — T1110
-    # Triggers CRITICAL when >10 failed SSH attempts from same IP in 60 seconds
     {
         "id": "AUTH-005",
         "name": "SSH Brute Force — High Volume",
@@ -136,7 +199,7 @@ RULES = [
         "match": lambda e: (
             e.get("category") == "auth"
             and re.search(r"accepted password|accepted publickey",
-                        e.get("fields", {}).get("message", ""), re.I) is not None
+                          e.get("fields", {}).get("message", ""), re.I) is not None
         ),
         "threshold": lambda e: _count_recent(
             f"ssh_fail:{e['fields'].get('src_ip','unknown')}",
@@ -157,8 +220,8 @@ RULES = [
         "mitre": "T1083",
         "match": lambda e: (
             e.get("category") == "web"
-            and re.search(r"\.\./|%2e%2e|etc/passwd|/proc/self", 
-                        e.get("fields", {}).get("path", ""), re.I) is not None
+            and re.search(r"\.\./|%2e%2e|etc/passwd|/proc/self",
+                          e.get("fields", {}).get("path", ""), re.I) is not None
         ),
         "threshold": None,
     },
@@ -183,15 +246,14 @@ RULES = [
     {
         "id": "WEB-003",
         "name": "SQL Injection Attempt",
-"description": "SQL injection patterns detected in path/query/full URI (handles URL-encoded payloads).",
+        "description": "SQL injection patterns detected in path/query/full URI (handles URL-encoded payloads).",
         "severity": "HIGH",
         "category": "web",
         "mitre": "T1190",
         "match": lambda e: (
             e.get("category") == "web"
             and any(re.search(
-r"(union|select|insert|drop|delete|update|or 1=|and 1=|benchmark|sleep|waitfor|pg_sleep|dbms_pipe|extractvalue|order by|--|/\*\*|; --|exec|xp_cmdshell|cast|chr|1' OR '1'='1|UNION SELECT| SLEEP| DROP TABLE)",
-
+                r"(union|select|insert|drop|delete|update|or 1=|and 1=|benchmark|sleep|waitfor|pg_sleep|dbms_pipe|extractvalue|order by|--|/\*\*|; --|exec|xp_cmdshell|cast|chr|1' OR '1'='1|UNION SELECT| SLEEP| DROP TABLE)",
                 target, re.I
             ) is not None for target in [
                 e.get("fields", {}).get("path", ""),
@@ -248,6 +310,64 @@ r"(union|select|insert|drop|delete|update|or 1=|and 1=|benchmark|sleep|waitfor|p
         ),
         "threshold": None,
     },
+
+    # ── Network / TLS ─────────────────────────────────────────────────────
+
+    {
+        "id": "NET-001",
+        "name": "Deprecated TLS Version Detected",
+        "description": (
+            "A TLS session was negotiated using TLS 1.0 (0x0301) or TLS 1.1 (0x0302). "
+            "These versions have known cryptographic weaknesses (BEAST, POODLE) "
+            "and their presence is a compliance finding under NIST SP 800-52r2 and PCI DSS."
+        ),
+        "severity": "MEDIUM",
+        "category": "network",
+        "mitre": "T1573",
+        "match": lambda e: (
+            "TLS_EVENT" in e.get("raw", "")
+            and _is_deprecated_tls(e.get("raw", ""))
+        ),
+        "threshold": None,
+    },
+
+    {
+        "id": "NET-002",
+        "name": "High-Entropy SNI — Potential DGA Domain",
+        "description": (
+            "The SNI field contains a high-entropy hostname characteristic of "
+            "Domain Generation Algorithm (DGA) malware used to randomise C2 domains "
+            "and evade static blocklists."
+        ),
+        "severity": "HIGH",
+        "category": "network",
+        "mitre": "T1071.001",
+        "match": lambda e: (
+            "TLS_EVENT" in e.get("raw", "")
+            and _shannon_entropy(
+                _extract_sni_from_raw(e.get("raw", "")).split(".")[0]
+            ) > 3.8
+        ),
+        "threshold": None,
+    },
+
+    {
+        "id": "NET-003",
+        "name": "Known Malicious JA3 Fingerprint",
+        "description": (
+            "The TLS Client Hello matches a JA3 fingerprint associated with "
+            "known malware families (Dridex, Trickbot, Cobalt Strike, Metasploit). "
+            "JA3 hashes the TLS handshake parameters to fingerprint the client implementation."
+        ),
+        "severity": "HIGH",
+        "category": "network",
+        "mitre": "T1071",
+        "match": lambda e: (
+            "TLS_EVENT" in e.get("raw", "")
+            and _extract_ja3_from_raw(e.get("raw", "")) in _KNOWN_BAD_JA3
+        ),
+        "threshold": None,
+    },
 ]
 
 
@@ -270,14 +390,15 @@ def analyze_event(event: dict) -> list[dict]:
                         "description": rule["description"],
                         "severity":    rule["severity"],
                         "mitre":       rule.get("mitre"),
-                        "source_ip":   event.get("fields", {}).get("src_ip"),  # G-03 fix
-                        "geo": geo_data,  # Add geo info to alerts
+                        "source_ip":   event.get("fields", {}).get("src_ip"),
+                        "geo":         geo_data,
                         "timestamp":   datetime.now(timezone.utc).isoformat(),
                     })
-                    _discord_notify_if_configured(alerts[-1]) # Discord notification for each alert
+                    _discord_notify_if_configured(alerts[-1])
         except Exception as exc:
             logger.debug(f"Rule {rule['id']} evaluation error: {exc}")
     return alerts
+
 
 def _discord_notify_if_configured(alert: dict):
     """Send Discord notification if webhook is configured."""
@@ -289,6 +410,7 @@ def _discord_notify_if_configured(alert: dict):
     ok = discord_notify(alert, webhook_url=webhook, min_severity="HIGH")
     if not ok:
         logger.warning(f"[Discord] Notification failed for {alert.get('rule')}")
+
 
 def get_rules() -> list[dict]:
     """Return rule metadata (no lambdas) for the API."""
