@@ -7,7 +7,6 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-
 from flask import Flask, jsonify, render_template, request
 
 from siem.collector import start_collectors
@@ -130,14 +129,22 @@ def api_ingest():
     """
     Manual log ingestion endpoint.
     POST JSON: {"raw": "<log line>", "source": "myapp"}
+    Supports "_pre_parsed" field for pre-structured events (e.g. azure_collector.py)
     """
     body = request.get_json(silent=True) or {}
     raw  = body.get("raw", "")
     if not raw:
         return jsonify({"error": "missing 'raw' field"}), 400
 
-    from siem.collector import parse_log_line
-    event  = parse_log_line(raw, source=body.get("source", "api")) or {"fields": {}}
+    # Use pre-parsed event if available (from azure_collector.py)
+    pre_parsed = body.get("_pre_parsed")
+    if pre_parsed and isinstance(pre_parsed, dict) and pre_parsed.get("category"):
+        event = pre_parsed
+        event.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+    else:
+        from siem.collector import parse_log_line
+        event = parse_log_line(raw, source=body.get("source", "api")) or {"fields": {}}
+
     alerts = analyze_event(event)
     event["alerts"] = alerts
     eid = store_event(event)

@@ -13,6 +13,8 @@ from collections import defaultdict, deque
 from datetime import datetime, timezone
 from siem.geoip import lookup as geoip_lookup
 from siem.notifier import send_alert as discord_notify
+from azure_siem.azure_rules import AZURE_RULES
+from azure_siem.azure_activity_rules import AZURE_ACTIVITY_RULES
 
 logger = logging.getLogger("siem.detector")
 
@@ -370,6 +372,8 @@ RULES = [
     },
 ]
 
+RULES = RULES + AZURE_RULES
+RULES = RULES + AZURE_ACTIVITY_RULES
 
 # ──────────────────────────────────────────────
 #  Public API
