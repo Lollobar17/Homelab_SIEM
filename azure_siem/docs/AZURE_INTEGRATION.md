@@ -69,7 +69,7 @@ Homelab_SIEM/
   "syslog_enabled": true,
   "AZURE_STORAGE_CONNECTION_STRING": "DefaultEndpointsProtocol=https;AccountName=homelabsiemflow;AccountKey=...;EndpointSuffix=core.windows.net",
   "AZURE_STORAGE_CONTAINER": "insights-logs-flowlogflowevent",
-  "SIEM_INGEST_URL": "http://localhost:5000/api/ingest",
+  "SIEM_INGEST_URL": "http://localhost:5000/api/v1/ingress",
   "AZURE_POLL_INTERVAL": "60"
 }
 ```

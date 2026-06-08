@@ -15,6 +15,9 @@ from siem.geoip import lookup as geoip_lookup
 from siem.notifier import send_alert as discord_notify
 from azure_siem.azure_rules import AZURE_RULES
 from azure_siem.azure_activity_rules import AZURE_ACTIVITY_RULES
+from azure_siem.sentinel.sentinel_rules import SENTINEL_RULES
+from siem.caldera_rules import CALDERA_RULES
+from siem.caldera_parser import is_caldera_event
 
 logger = logging.getLogger("siem.detector")
 
@@ -25,18 +28,44 @@ logger = logging.getLogger("siem.detector")
 _counters: dict[str, deque] = defaultdict(lambda: deque())   # key → list of timestamps
 _WINDOW = 60   # seconds for sliding-window rules
 _COUNTER_LOCK = threading.Lock()
+_recorded_keys: set[str] = set()  # keys already bumped for the current event
+
+_NOTIFY_DEDUP: dict[str, float] = {}
+_NOTIFY_DEDUP_TTL = 300  # seconds between Discord notifications per rule+IP
+_NOTIFY_LOCK = threading.Lock()
 
 
 def _count_recent(key: str, now: float, window: int = _WINDOW, record: bool = True) -> int:
-    """Return count for `key` in `window` seconds; optionally record current event."""
+    """Return count for `key` in `window` seconds; optionally record current event once."""
     with _COUNTER_LOCK:
         dq = _counters[key]
         cutoff = now - window
         while dq and dq[0] < cutoff:
             dq.popleft()
-        if record:
+        if record and key not in _recorded_keys:
             dq.append(now)
-        return len(dq)
+            _recorded_keys.add(key)
+        count = len(dq)
+        if count == 0:
+            _counters.pop(key, None)
+        return count
+
+
+def _should_discord_notify(rule_id: str, source_ip: str | None) -> bool:
+    """Suppress duplicate Discord webhooks for the same rule+IP within TTL."""
+    key = f"{rule_id}:{source_ip or 'unknown'}"
+    now = time.time()
+    with _NOTIFY_LOCK:
+        last = _NOTIFY_DEDUP.get(key, 0)
+        if now - last < _NOTIFY_DEDUP_TTL:
+            return False
+        _NOTIFY_DEDUP[key] = now
+        if len(_NOTIFY_DEDUP) > 2000:
+            cutoff = now - _NOTIFY_DEDUP_TTL
+            for k, t in list(_NOTIFY_DEDUP.items()):
+                if t < cutoff:
+                    del _NOTIFY_DEDUP[k]
+        return True
 
 
 # ──────────────────────────────────────────────
@@ -374,6 +403,7 @@ RULES = [
 
 RULES = RULES + AZURE_RULES
 RULES = RULES + AZURE_ACTIVITY_RULES
+RULES = RULES + SENTINEL_RULES
 
 # ──────────────────────────────────────────────
 #  Public API
@@ -381,24 +411,34 @@ RULES = RULES + AZURE_ACTIVITY_RULES
 
 def analyze_event(event: dict) -> list[dict]:
     """Run all rules against an event; return a list of triggered alerts."""
+    _recorded_keys.clear()
     alerts = []
-    source_for_geo = event.get("fields", {}).get("src_ip") or event.get("raw", "")
-    geo_data = geoip_lookup(source_for_geo)
-    for rule in RULES:
+    src_ip = event.get("fields", {}).get("src_ip")
+    caldera = is_caldera_event(event)
+    rules_to_run = RULES + (CALDERA_RULES if caldera else [])
+
+    for rule in rules_to_run:
         try:
             if rule["match"](event):
                 if rule["threshold"] is None or rule["threshold"](event):
-                    alerts.append({
+                    mitre = rule.get("mitre")
+                    if mitre is None and rule["id"].startswith("CAL-"):
+                        tech = (event.get("fields") or {}).get("technique_id")
+                        mitre = tech or None
+                    geo_data = geoip_lookup(src_ip) if src_ip and not caldera else {}
+                    alert = {
                         "rule":        rule["id"],
                         "name":        rule["name"],
                         "description": rule["description"],
                         "severity":    rule["severity"],
-                        "mitre":       rule.get("mitre"),
-                        "source_ip":   event.get("fields", {}).get("src_ip"),
+                        "mitre":       mitre,
+                        "source_ip":   src_ip,
                         "geo":         geo_data,
+                        "purple_team": caldera,
                         "timestamp":   datetime.now(timezone.utc).isoformat(),
-                    })
-                    _discord_notify_if_configured(alerts[-1])
+                    }
+                    alerts.append(alert)
+                    _discord_notify_if_configured(alert)
         except Exception as exc:
             logger.debug(f"Rule {rule['id']} evaluation error: {exc}")
     return alerts
@@ -406,6 +446,10 @@ def analyze_event(event: dict) -> list[dict]:
 
 def _discord_notify_if_configured(alert: dict):
     """Send Discord notification if webhook is configured."""
+    if alert.get("purple_team") or str(alert.get("rule", "")).startswith("CAL-"):
+        return
+    if not _should_discord_notify(alert.get("rule", ""), alert.get("source_ip")):
+        return
     webhook = os.getenv("DISCORD_WEBHOOK_URL", "")
     if not webhook:
         logger.debug("[Discord] Skipping notification — DISCORD_WEBHOOK_URL not set")
@@ -427,5 +471,5 @@ def get_rules() -> list[dict]:
             "category":    r["category"],
             "mitre":       r.get("mitre"),
         }
-        for r in RULES
+        for r in RULES + CALDERA_RULES
     ]

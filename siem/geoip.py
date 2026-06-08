@@ -5,11 +5,17 @@ Results are cached in memory to avoid redundant requests.
 """
 
 import logging
+import threading
+import time
 import requests
 import re
 from functools import lru_cache
 
 logger = logging.getLogger("siem.geoip")
+
+_GEOIP_LOCK = threading.Lock()
+_last_geoip_call = 0.0
+_GEOIP_MIN_INTERVAL = 1.5  # ~40 req/min — under ip-api.com free tier (45/min)
 
 # Private/reserved IP ranges — skip lookup for these
 _PRIVATE_PREFIXES = (
@@ -46,6 +52,13 @@ def lookup(ip: str) -> dict:
     
     if _is_private(ip):
         return {"country": "Internal", "city": "Private Network", "isp": "N/A"}
+
+    global _last_geoip_call
+    with _GEOIP_LOCK:
+        wait = _GEOIP_MIN_INTERVAL - (time.time() - _last_geoip_call)
+        if wait > 0:
+            time.sleep(wait)
+        _last_geoip_call = time.time()
 
     try:
         response = requests.get(

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/bash/stop_siem.sh
-# Cleanly stops the full SIEM stack (app.py + Azure collectors).
+# Cleanly stops the full SIEM stack (app.py + Azure + Sentinel collectors).
 # Run from project ROOT: bash scripts/bash/stop_siem.sh
 
 set -euo pipefail
@@ -43,5 +43,7 @@ _stop_pid() {
 _stop_pid "SIEM (app.py)"             "$LOGS_DIR/siem.pid"
 _stop_pid "Azure Flow Collector"      "$LOGS_DIR/azure_collector.pid"
 _stop_pid "Azure Activity Collector"  "$LOGS_DIR/azure_activity_collector.pid"
+_stop_pid "Sentinel Collector"        "$LOGS_DIR/sentinel_collector.pid"
+_stop_pid "Caldera Collector"         "$LOGS_DIR/caldera_collector.pid"
 
 echo -e "${GREEN}Done.${NC}"

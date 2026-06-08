@@ -38,7 +38,10 @@ def _azure_count(key: str, now: float, window: int = _AZURE_WINDOW) -> int:
         while dq and dq[0] < cutoff:
             dq.popleft()
         dq.append(now)
-        return len(dq)
+        count = len(dq)
+        if count == 0:
+            _azure_counters.pop(key, None)
+        return count
 
 # ──────────────────────────────────────────────
 #  Field extractors

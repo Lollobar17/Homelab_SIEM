@@ -2,16 +2,17 @@
 
 A lightweight, self-hosted **Security Information & Event Management** system built in pure Python.
 Designed to learn cybersecurity concepts hands-on — log collection, threat detection, and a live dashboard.
-Now extended with **Azure Cloud Integration** for hybrid on-premise + cloud security monitoring.
+Extended with full **Azure Cloud Integration** for hybrid on-premise + cloud security monitoring.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-3.0-black?style=flat&logo=flask)
 ![SQLite](https://img.shields.io/badge/Storage-SQLite-003B57?style=flat&logo=sqlite)
 ![Azure](https://img.shields.io/badge/Azure-Cloud-0078D4?style=flat&logo=microsoftazure&logoColor=white)
+![Sentinel](https://img.shields.io/badge/Microsoft-Sentinel-0078D4?style=flat&logo=microsoftazure&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat&logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat)
 
----
+-----
 
 ## Table of Contents
 
@@ -28,28 +29,34 @@ Now extended with **Azure Cloud Integration** for hybrid on-premise + cloud secu
 - [Roadmap](#roadmap)
 - [License](#license)
 
----
+-----
 
 ## Features
 
-| Feature | Details |
-|---|---|
-| **Log Collection** | Tails local files + listens on UDP syslog (port 5140) |
-| **Log Parsing** | SSH/auth, Apache/Nginx, Flask/Werkzeug, kernel/dmesg, syslog |
-| **Threat Detection** | Rule engine with 26 built-in rules mapped to MITRE ATT&CK |
-| **Cloud Detection** | Azure VNet Flow Logs + Activity Log monitoring (14 cloud rules) |
-| **MITRE ATT&CK** | Every rule mapped to a technique ID |
-| **Dashboard** | Live web UI — KPIs, charts, alert table, event stream, rule stats |
-| **Event Modal** | Click any event to view full raw log, parsed fields and GeoIP |
-| **Alert Deduplication** | Identical alerts grouped with occurrence counter |
-| **Export CSV** | One-click export of filtered events and alerts |
-| **GeoIP Enrichment** | Geographic metadata for every source IP via ip-api.com |
-| **Discord Alerts** | Webhook notifications for HIGH and CRITICAL alerts |
-| **Docker Compose** | Single-command deployment with persistent volumes |
-| **Bash Automation** | start/stop/health-check/log-rotation scripts for WSL2 and Linux |
-| **Backup & Recovery** | Automated SQLite backup and restore scripts |
+|Feature                |Details                                                                  |
+|-----------------------|-------------------------------------------------------------------------|
+|**Log Collection**     |Tails local files + listens on UDP syslog (port 5140)                    |
+|**Log Parsing**        |SSH/auth, Apache/Nginx, Flask/Werkzeug, kernel/dmesg, syslog             |
+|**Threat Detection**   |Rule engine with 41 built-in rules mapped to MITRE ATT&CK                |
+|**Caldera Purple Team**|Optional sidecar — 5 rules, tactic inference, `simulate_caldera.py` tester |
+|**Cloud Detection**    |Azure VNet Flow Logs + Activity Log + Microsoft Sentinel (21 cloud rules)|
+|**MITRE ATT&CK**       |Every rule mapped to a technique ID                                      |
+|**Dashboard**          |Live web UI — KPIs, charts, alert table, event stream, rule stats        |
+|**Event Modal**        |Click any event to view full raw log, parsed fields and GeoIP            |
+|**Alert Deduplication**|Grouped by rule + source IP; Discord webhook cooldown (5 min)            |
+|**SQLite WAL Mode**    |Concurrent ingest without `database is locked` errors                    |
+|**DB Retention**       |Auto-prune events/alerts (30-day default, configurable)                  |
+|**Export CSV**         |One-click export of filtered events and alerts                           |
+|**GeoIP Enrichment**   |Geographic metadata for every source IP via ip-api.com                   |
+|**Discord Alerts**     |Webhook notifications for HIGH and CRITICAL alerts                       |
+|**Docker Compose**     |Single-command deployment with persistent volumes                        |
+|**Bash Automation**    |start/stop/health-check/log-rotation scripts for WSL2 and Linux          |
+|**Backup & Recovery**  |Automated SQLite backup and restore scripts                              |
+|**REST API v1 Ingress**|`POST /api/v1/ingress` — structured JSON ingestion with batch support    |
+|**Incident Triage**    |Alert status workflow (New → In Progress → Resolved) with analyst notes  |
+|**Client-Side Charts** |`GET /api/v1/stats` + Chart.js — log volume and alert severity dashboards|
 
----
+-----
 
 ## Quick Start
 
@@ -76,129 +83,157 @@ bash scripts/bash/start_siem.sh --no-azure
 docker-compose up -d
 ```
 
----
+-----
 
 ## Architecture
 
 ```
-[Local Logs]          [Azure VNet]         [Azure Activity Log]
-     ↓                     ↓                       ↓
-[collector.py]    [azure_collector.py]  [azure_activity_collector.py]
-     ↓                     ↓                       ↓
-     └─────────────────────┴───────────────────────┘
-                           ↓
-                   POST /api/ingest
-                           ↓
-               [detector.py — 26 rules]
-                           ↓
-              [storage.py — SQLite + API]
-                           ↓
-              [Dashboard + Discord + CSV]
+[Local Logs]  [Azure Cloud]  [Sentinel]  [Caldera :8888]
+     ↓              ↓              ↓            ↓
+[collector]   [azure_*]    [sentinel_col]  [caldera_collector]
+     ↓              ↓              ↓            ↓
+     └──────────────┴──────────────┴────────────┘
+                         ↓
+           POST /api/v1/ingress (batch)  |  legacy /api/ingest
+                         ↓
+                 [detector.py — 41 rules]
+                                ↓
+                   [storage.py — SQLite + API]
+                                ↓
+                   [Dashboard + Discord + CSV]
 ```
 
-- **Collectors** — file tailers, UDP syslog, Suricata eve.json, Azure Blob Storage pollers
-- **Parser** — normalizes raw lines into structured event objects
-- **Rule Engine** — evaluates events against 26 detection rules with GeoIP and Discord notify
-- **Storage + API** — SQLite persistence, REST API, live dashboard
-
----
+-----
 
 ## Azure Cloud Integration
 
-Phase 1 and Phase 2 of the cloud integration are fully operational.
+All three phases are fully operational.
 
 ### Infrastructure
 
-| Resource | Name | Type |
-|---|---|---|
-| Resource Group | homelab-siem-rg | Azure container |
-| Virtual Machine | homelab-vm | Ubuntu 24.04, D2s_v6, West Europe |
-| Storage Account | homelabsiemflow | LRS, West Europe |
-| Flow Log | homelab-vm-vnet-flowlog | VNet Flow Logs v4 |
-| Log Analytics | homelab-siem-workspace | Traffic Analytics |
-| Diagnostic Setting | homelab-activity-logs | Admin + Security + Policy |
+|Resource          |Name                   |Type                             |
+|------------------|-----------------------|---------------------------------|
+|Resource Group    |homelab-siem-rg        |Azure container                  |
+|Virtual Machine   |homelab-vm             |Ubuntu 24.04, D2s_v6, West Europe|
+|Storage Account   |homelabsiemflow        |LRS, West Europe                 |
+|Flow Log          |homelab-vm-vnet-flowlog|VNet Flow Logs v4                |
+|Log Analytics     |homelab-siem-workspace |Traffic Analytics + Sentinel     |
+|Diagnostic Setting|homelab-activity-logs  |Admin + Security + Policy        |
+|Sentinel Workspace|homelab-siem-workspace |Connected to Defender portal     |
+|Service Principal |siem-sentinel-reader   |Log Analytics Reader             |
+|Sentinel Rule     |homelab-vm-start       |Scheduled KQL rule               |
 
-### Setup
+### Phase 1 — VNet Flow Logs
 
 ```bash
-# Install Azure dependency
-pip install azure-storage-blob
+python azure_collector.py
+```
 
-# Add to config.json
+### Phase 2 — Activity Logs
+
+```bash
+python azure_activity_collector.py
+```
+
+### Phase 3 — Microsoft Sentinel
+
+```bash
+pip install msal
+python sentinel_collector.py
+```
+
+Add to `config.json`:
+
+```json
 {
   "AZURE_STORAGE_CONNECTION_STRING": "DefaultEndpointsProtocol=https;...",
-  "AZURE_STORAGE_CONTAINER": "insights-logs-flowlogflowevent",
-  "SIEM_INGEST_URL": "http://localhost:5000/api/ingest"
+  "SENTINEL_TENANT_ID": "<tenant-id>",
+  "SENTINEL_CLIENT_ID": "<client-id>",
+  "SENTINEL_CLIENT_SECRET": "<client-secret>",
+  "SENTINEL_WORKSPACE_ID": "30d15ecc-8789-401c-a9bf-4a490e22b33d"
 }
-
-# Start collectors
-python azure_collector.py
-python azure_activity_collector.py
 ```
 
 Full setup guide: `azure_siem/docs/AZURE_INTEGRATION.md`
 
----
+-----
 
 ## API Reference
 
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | /api/stats | KPIs, timeline, top IPs |
-| GET | /api/events?limit=N&category=cloud | Recent events with filters |
-| GET | /api/alerts?limit=N&severity=HIGH | Recent alerts |
-| GET | /api/rules | All detection rules |
-| GET | /api/rules/stats | Rule effectiveness statistics |
-| GET | /api/health | Health check |
-| POST | /api/ingest | Manually ingest a log line |
-| GET | /rules | Rule Editor web UI |
+|Method|Endpoint                                    |Description                                |
+|------|--------------------------------------------|-------------------------------------------|
+|GET   |/api/stats                                  |KPIs, timeline, top IPs (legacy)           |
+|GET   |/api/v1/stats                               |Extended metrics for Chart.js dashboards   |
+|GET   |/api/events?limit=N&category=cloud          |Recent events with filters                 |
+|GET   |/api/alerts?limit=N&severity=HIGH&status=New|Recent alerts with triage filter           |
+|PATCH |/api/v1/alerts/<id>/triage                  |Update alert status and analyst notes      |
+|GET   |/api/rules                                  |All detection rules                        |
+|GET   |/api/rules/stats                            |Rule effectiveness statistics              |
+|GET   |/api/health                                 |Health check                               |
+|POST  |/api/ingest                                 |Ingest raw log line (legacy)               |
+|POST  |/api/v1/ingress                             |Structured JSON ingestion (single or batch)|
+|GET   |/rules                                      |Rule Editor web UI                         |
 
----
+Full walkthrough: `docs/API_V1_GUIDE.md`
+
+-----
 
 ## Detection Rules
 
 ### On-Premise Rules (12)
 
-| ID | Name | Severity | MITRE |
-|---|---|---|---|
-| AUTH-001 | SSH Brute Force | HIGH | T1110 |
-| AUTH-002 | Root Login Attempt | HIGH | T1110 |
-| AUTH-003 | Successful Root Login | CRITICAL | T1078.003 |
-| AUTH-004 | Sudo Privilege Escalation | MEDIUM | T1548.003 |
-| AUTH-005 | SSH Brute Force — High Volume | CRITICAL | T1110 |
-| AUTH-006 | Successful Login After Failures | CRITICAL | T1110 |
-| WEB-001 | HTTP Scanner / Directory Traversal | MEDIUM | T1083 |
-| WEB-002 | Web Brute Force (4xx Flood) | MEDIUM | T1110 |
-| WEB-003 | SQL Injection Attempt | HIGH | T1190 |
-| WEB-004 | Web Brute Force — High Volume | CRITICAL | T1110 |
-| SYS-001 | OOM Killer Activated | MEDIUM | — |
-| SYS-002 | Segmentation Fault | LOW | — |
+|ID      |Name                              |Severity|MITRE    |
+|--------|----------------------------------|--------|---------|
+|AUTH-001|SSH Brute Force                   |HIGH    |T1110    |
+|AUTH-002|Root Login Attempt                |HIGH    |T1110    |
+|AUTH-003|Successful Root Login             |CRITICAL|T1078.003|
+|AUTH-004|Sudo Privilege Escalation         |MEDIUM  |T1548.003|
+|AUTH-005|SSH Brute Force — High Volume     |CRITICAL|T1110    |
+|AUTH-006|Successful Login After Failures   |CRITICAL|T1110    |
+|WEB-001 |HTTP Scanner / Directory Traversal|MEDIUM  |T1083    |
+|WEB-002 |Web Brute Force (4xx Flood)       |MEDIUM  |T1110    |
+|WEB-003 |SQL Injection Attempt             |HIGH    |T1190    |
+|WEB-004 |Web Brute Force — High Volume     |CRITICAL|T1110    |
+|SYS-001 |OOM Killer Activated              |MEDIUM  |—        |
+|SYS-002 |Segmentation Fault                |LOW     |—        |
 
 ### Cloud Rules — Azure VNet Flow Logs (7)
 
-| ID | Name | Severity | MITRE |
-|---|---|---|---|
-| CLOUD-001 | NSG: SSH REJECT from external IP | HIGH | T1110 |
-| CLOUD-002 | NSG: SSH Brute Force (10+ in 5min) | CRITICAL | T1110 |
-| CLOUD-003 | NSG: RDP Traffic Detected | HIGH | T1021.001 |
-| CLOUD-004 | NSG: Port Scan Detected | HIGH | T1046 |
-| CLOUD-005 | NSG: Database Port Exposed | CRITICAL | T1190 |
-| CLOUD-006 | NSG: Anomalous Outbound Volume | HIGH | T1048 |
-| CLOUD-007 | NSG: Unexpected Inbound Port | MEDIUM | T1133 |
+|ID       |Name                              |Severity|MITRE    |
+|---------|----------------------------------|--------|---------|
+|CLOUD-001|NSG: SSH REJECT from external IP  |HIGH    |T1110    |
+|CLOUD-002|NSG: SSH Brute Force (10+ in 5min)|CRITICAL|T1110    |
+|CLOUD-003|NSG: RDP Traffic Detected         |HIGH    |T1021.001|
+|CLOUD-004|NSG: Port Scan Detected           |HIGH    |T1046    |
+|CLOUD-005|NSG: Database Port Exposed        |CRITICAL|T1190    |
+|CLOUD-006|NSG: Anomalous Outbound Volume    |HIGH    |T1048    |
+|CLOUD-007|NSG: Unexpected Inbound Port      |MEDIUM  |T1133    |
 
 ### Cloud Rules — Azure Activity Log (7)
 
-| ID | Name | Severity | MITRE |
-|---|---|---|---|
-| CLOUD-008 | Activity: NSG Rule Modified | HIGH | T1562.007 |
-| CLOUD-009 | Activity: Storage Keys Listed | HIGH | T1552.005 |
-| CLOUD-010 | Activity: Diagnostic Setting Deleted | CRITICAL | T1562.008 |
-| CLOUD-011 | Activity: New Role Assignment | CRITICAL | T1098.003 |
-| CLOUD-012 | Activity: VM Deleted | CRITICAL | T1485 |
-| CLOUD-013 | Activity: VM Started | MEDIUM | T1078.004 |
-| CLOUD-014 | Activity: API Brute Force | HIGH | T1110 |
+|ID       |Name                                |Severity|MITRE    |
+|---------|------------------------------------|--------|---------|
+|CLOUD-008|Activity: NSG Rule Modified         |HIGH    |T1562.007|
+|CLOUD-009|Activity: Storage Keys Listed       |HIGH    |T1552.005|
+|CLOUD-010|Activity: Diagnostic Setting Deleted|CRITICAL|T1562.008|
+|CLOUD-011|Activity: New Role Assignment       |CRITICAL|T1098.003|
+|CLOUD-012|Activity: VM Deleted                |CRITICAL|T1485    |
+|CLOUD-013|Activity: VM Started                |MEDIUM  |T1078.004|
+|CLOUD-014|Activity: API Brute Force           |HIGH    |T1110    |
 
----
+### Cloud Rules — Microsoft Sentinel (7)
+
+|ID      |Name                                  |Severity|MITRE    |
+|--------|--------------------------------------|--------|---------|
+|SENT-001|Sentinel: High/Critical Security Alert|HIGH    |T1078    |
+|SENT-002|Sentinel: Critical Security Alert     |CRITICAL|T1078    |
+|SENT-003|Sentinel: Security Incident Created   |HIGH    |T1078.004|
+|SENT-004|Sentinel: Lateral Movement Detected   |CRITICAL|T1021    |
+|SENT-005|Sentinel: Persistence Tactic Detected |CRITICAL|T1098    |
+|SENT-006|Sentinel: Exfiltration Tactic Detected|CRITICAL|T1048    |
+|SENT-007|Sentinel: Alert Storm (5+ in 5min)    |CRITICAL|T1110    |
+
+-----
 
 ## Security Assessment
 
@@ -208,69 +243,96 @@ The SIEM was subjected to a structured penetration testing assessment using Nmap
 
 Full assessment: [Network Security Monitoring Lab](https://github.com/Lollobar17/Network_Security_Lab)
 
----
+-----
 
 ## Configuration
 
 Edit `config.json`:
 
-| Key | Default | Description |
-|---|---|---|
-| `syslog_enabled` | true | Enable UDP syslog listener |
-| `syslog_port` | 5140 | UDP syslog port |
-| `web_port` | 5000 | Dashboard port |
-| `discord_webhook` | — | Discord webhook URL |
-| `AZURE_STORAGE_CONNECTION_STRING` | — | Azure storage credentials |
-| `AZURE_STORAGE_CONTAINER` | insights-logs-flowlogflowevent | Flow logs container |
-| `SIEM_INGEST_URL` | http://localhost:5000/api/ingest | SIEM ingest endpoint |
+|Key                              |Default                           |Description                |
+|---------------------------------|----------------------------------|---------------------------|
+|`syslog_enabled`                 |true                              |Enable UDP syslog listener |
+|`syslog_port`                    |5140                              |UDP syslog port            |
+|`web_port`                       |5000                              |Dashboard port             |
+|`discord_webhook`                |—                                 |Discord webhook URL        |
+|`AZURE_STORAGE_CONNECTION_STRING`|—                                 |Azure storage credentials  |
+|`AZURE_STORAGE_CONTAINER`        |insights-logs-flowlogflowevent    |Flow logs container        |
+|`SIEM_INGEST_URL`                |<http://localhost:5000/api/v1/ingress>|SIEM batch ingest endpoint |
+|`SIEM_RETENTION_DAYS`            |30                                |Auto-prune DB age (0=off)  |
+|`CALDERA_URL`                    |<http://127.0.0.1:8888>           |Caldera REST API (external)|
+|`CALDERA_API_KEY`                |—                                 |Caldera API key (optional) |
+|`CALDERA_POLL_INTERVAL`          |120                               |Collector poll seconds     |
+|`CALDERA_DETECT`                 |true                              |`false` = archive only     |
+|`CALDERA_FINISHED_GRACE`         |600                               |Tail finished ops (seconds)|
+|`SENTINEL_TENANT_ID`             |—                                 |Azure tenant ID            |
+|`SENTINEL_CLIENT_ID`             |—                                 |Service Principal client ID|
+|`SENTINEL_CLIENT_SECRET`         |—                                 |Service Principal secret   |
+|`SENTINEL_WORKSPACE_ID`          |—                                 |Log Analytics workspace ID |
+
 
 > config.json is excluded from version control via .gitignore. Never commit credentials.
 
----
+-----
 
 ## Backup and Recovery
 
 ```bash
-# Create backup
 python scripts/backup_db.py
-
-# Restore backup
 python scripts/restore_db.py --from backups/siem-YYYYMMDD-HHMMSS.db --force
+python scripts/prune_db.py              # manual retention prune
+python scripts/prune_db.py --days 14    # custom retention window
 ```
 
 Full guide: `docs/BACKUP_AND_RECOVERY.md`
 
----
+Schedule daily prune via cron:
+
+```bash
+0 3 * * * cd /path/to/Homelab_SIEM && .venv/bin/python scripts/prune_db.py
+```
+
+-----
 
 ## Project Structure
 
 ```text
 Homelab_SIEM/
-├── app.py                          # Flask app + API routes
-├── azure_collector.py              # Azure VNet Flow Logs collector
-├── azure_activity_collector.py     # Azure Activity Log collector
-├── config.json                     # User configuration (git-ignored)
+├── app.py
+├── wsgi.py                         (Gunicorn entrypoint)
+├── config.json                     (git-ignored)
 ├── requirements.txt
 ├── simulate_logs.py
-├── suricata.yaml
+├── simulate_caldera.py
 ├── Dockerfile
 ├── docker-compose.yml
 ├── CHANGELOG.md
 ├── siem/
-│   ├── collector.py                # File tailer + UDP syslog
-│   ├── detector.py                 # Detection rule engine
-│   ├── storage.py                  # SQLite persistence
-│   ├── geoip.py                    # GeoIP lookup
-│   └── notifier.py                 # Discord notifications
+│   ├── collector.py
+│   ├── detector.py
+│   ├── ingress.py
+│   ├── storage.py
+│   ├── geoip.py
+│   ├── caldera_rules.py
+│   ├── caldera_parser.py
+│   └── notifier.py
 ├── azure_siem/
 │   ├── __init__.py
-│   ├── azure_rules.py              # CLOUD-001..007 (Flow Logs)
-│   ├── azure_activity_rules.py     # CLOUD-008..014 (Activity Log)
+│   ├── ingest_client.py            (batch v1 ingress helper)
+│   ├── azure_collector.py
+│   ├── azure_activity_collector.py
+│   ├── azure_rules.py
+│   ├── azure_activity_rules.py
+│   ├── sentinel/
+│   │   ├── __init__.py
+│   │   ├── sentinel_collector.py
+│   │   └── sentinel_rules.py
 │   └── docs/
 │       └── AZURE_INTEGRATION.md
 ├── scripts/
 │   ├── backup_db.py
 │   ├── restore_db.py
+│   ├── prune_db.py
+│   ├── caldera_collector.py
 │   └── bash/
 │       ├── start_siem.sh
 │       ├── stop_siem.sh
@@ -281,19 +343,19 @@ Homelab_SIEM/
 │   ├── dashboard.html
 │   └── rules.html
 ├── docs/
+│   ├── API_V1_GUIDE.md
 │   ├── BACKUP_AND_RECOVERY.md
 │   ├── DISCORD_GUIDE.md
 │   ├── GEOIP_GUIDE.md
+│   ├── CALDERA_INTEGRATION.md
 │   ├── RULESTATS_GUIDE.md
 │   ├── SURICATA_SETUP.md
 │   └── SYSLOG_GUIDE.md
-├── suricata-logs/
-├── suricata-rules/
 └── data/
     └── siem.db
 ```
 
----
+-----
 
 ## Roadmap
 
@@ -305,22 +367,27 @@ Homelab_SIEM/
 - [x] Rule editor + backup/recovery scripts
 - [x] Azure VNet Flow Logs integration (Phase 1)
 - [x] Azure Activity Log integration (Phase 2)
-- [x] 14 cloud detection rules (CLOUD-001..014)
-- [x] Dashboard v2.0 — modals, GeoIP, dedup, CSV export, dark mode
+- [x] Microsoft Sentinel integration (Phase 3)
+- [x] 33 total detection rules (12 on-premise + 21 cloud)
+- [x] Dashboard v2.0/v2.1 — modals, GeoIP, dedup, CSV export, dark mode, Chart.js
+- [x] REST API v1 — structured ingress, triage workflow, extended stats
 - [x] Bash automation scripts (WSL2 compatible)
-- [ ] Microsoft Defender for Cloud integration (Phase 3)
+- [x] v2.2.0 reliability hardening (SQLite WAL, batch ingest, retention)
+- [x] MITRE Caldera integration — lightweight sidecar (`docs/CALDERA_INTEGRATION.md`)
+- [ ] Collector status indicator in dashboard topbar
 - [ ] Kubernetes cluster monitoring (future)
 
----
+-----
 
 ## Learning Resources
 
 - [MITRE ATT&CK](https://attack.mitre.org)
+- [Microsoft Sentinel Documentation](https://learn.microsoft.com/en-us/azure/sentinel/)
+- [Azure Network Watcher](https://learn.microsoft.com/en-us/azure/network-watcher/)
 - [TryHackMe](https://tryhackme.com)
 - [Suricata Documentation](https://suricata.readthedocs.io)
-- [Azure Network Watcher](https://learn.microsoft.com/en-us/azure/network-watcher/)
 
----
+-----
 
 ## License
 

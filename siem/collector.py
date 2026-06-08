@@ -66,6 +66,11 @@ class LogFileTailer(threading.Thread):
                     if line:
                         _process_raw_line(line.strip(), self.source_name)
                     else:
+                        try:
+                            if f.tell() > os.path.getsize(self.path):
+                                f.seek(0)  # file truncated (log rotation)
+                        except OSError:
+                            pass
                         time.sleep(0.3)
         except Exception as e:
             logger.error(f"[Tailer] Error on {self.path}: {e}")

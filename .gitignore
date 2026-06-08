@@ -10,3 +10,4 @@ data/
 config.json
 .azure_collector_state.json
 .azure_activity_collector_state.json
+.sentinel_collector_state.json

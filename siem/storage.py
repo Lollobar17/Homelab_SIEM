@@ -4,6 +4,7 @@ Persists events and alerts to a local SQLite database.
 """
 
 import json
+import os
 import sqlite3
 import logging
 import threading
@@ -14,13 +15,27 @@ logger = logging.getLogger("siem.storage")
 
 _DB_PATH = Path("data/siem.db")
 _local = threading.local()   # thread-local connections
+_write_lock = threading.Lock()
+
+# Prune events/alerts older than N days (0 = disabled). Override via env.
+RETENTION_DAYS = int(os.getenv("SIEM_RETENTION_DAYS", "30"))
+
+
+def _ts_expr(column: str) -> str:
+    """Normalize ISO-8601 text timestamps for SQLite date functions."""
+    return f"replace(replace({column}, 'T', ' '), 'Z', '')"
 
 
 def _get_conn() -> sqlite3.Connection:
     if not hasattr(_local, "conn"):
         _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
+        conn = sqlite3.connect(
+            str(_DB_PATH), check_same_thread=False, timeout=30.0,
+        )
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA busy_timeout=30000")
         _local.conn = conn
         _init_db(conn)
     return _local.conn
@@ -78,48 +93,67 @@ def _migrate(conn: sqlite3.Connection):
         conn.commit()
         logger.info("[DB] Migration applied: added geo to alerts table")
 
+    # Incident triage workflow
+    if "status" not in existing_columns:
+        conn.execute("ALTER TABLE alerts ADD COLUMN status TEXT DEFAULT 'New'")
+        conn.commit()
+        logger.info("[DB] Migration applied: added status to alerts table")
+    if "analyst_notes" not in existing_columns:
+        conn.execute("ALTER TABLE alerts ADD COLUMN analyst_notes TEXT DEFAULT ''")
+        conn.commit()
+        logger.info("[DB] Migration applied: added analyst_notes to alerts table")
+
+    # Index for triage filters (created once, IF NOT EXISTS is cheap).
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status)"
+    )
+    conn.commit()
+
 
 # ──────────────────────────────────────────────
 #  Write path
 # ──────────────────────────────────────────────
 
 def store_event(event: dict) -> int:
-    conn = _get_conn()
-    alerts = event.get("alerts", [])
+    with _write_lock:
+        conn = _get_conn()
+        alerts = event.get("alerts", [])
 
-    cur = conn.execute(
-        """INSERT INTO events (timestamp, source, category, raw, fields, has_alert)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (
-            event.get("timestamp", datetime.now(timezone.utc).isoformat()),
-            event.get("source", "unknown"),
-            event.get("category", "generic"),
-            event.get("raw", ""),
-            json.dumps(event.get("fields", {})),
-            1 if alerts else 0,
-        )
-    )
-    event_id = cur.lastrowid
-
-    for a in alerts:
-        conn.execute(
-            """INSERT INTO alerts (event_id, timestamp, rule_id, rule_name, description, severity, mitre, source_ip, geo)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        cur = conn.execute(
+            """INSERT INTO events (timestamp, source, category, raw, fields, has_alert)
+               VALUES (?, ?, ?, ?, ?, ?)""",
             (
-                event_id,
-                a.get("timestamp", datetime.now(timezone.utc).isoformat()),
-                a.get("rule"),
-                a.get("name"),
-                a.get("description"),
-                a.get("severity"),
-                a.get("mitre"),
-                a.get("source_ip"),  # G-03 fix
-                json.dumps(a.get("geo", {})),  # GeoIP info as JSON string
+                event.get("timestamp", datetime.now(timezone.utc).isoformat()),
+                event.get("source", "unknown"),
+                event.get("category", "generic"),
+                event.get("raw", ""),
+                json.dumps(event.get("fields", {})),
+                1 if alerts else 0,
             )
         )
+        event_id = cur.lastrowid
 
-    conn.commit()
-    return event_id
+        for a in alerts:
+            conn.execute(
+                """INSERT INTO alerts
+                   (event_id, timestamp, rule_id, rule_name, description,
+                    severity, mitre, source_ip, geo, status, analyst_notes)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'New', '')""",
+                (
+                    event_id,
+                    a.get("timestamp", datetime.now(timezone.utc).isoformat()),
+                    a.get("rule"),
+                    a.get("name"),
+                    a.get("description"),
+                    a.get("severity"),
+                    a.get("mitre"),
+                    a.get("source_ip"),
+                    json.dumps(a.get("geo", {})),
+                )
+            )
+
+        conn.commit()
+        return event_id
 
 
 # ──────────────────────────────────────────────
@@ -150,18 +184,72 @@ def get_recent_events(limit: int = 200, category: str = None, source: str = None
     return [_row_to_event(r) for r in rows]
 
 
-def get_recent_alerts(limit: int = 100, severity: str = None) -> list[dict]:
+# Valid triage statuses for incident case management.
+TRIAGE_STATUSES = frozenset({
+    "New", "In Progress", "Resolved", "False Positive",
+})
+
+
+def get_recent_alerts(
+    limit: int = 100,
+    severity: str = None,
+    status: str = None,
+) -> list[dict]:
     conn = _get_conn()
+    clauses, params = [], []
     if severity:
-        rows = conn.execute(
-            "SELECT * FROM alerts WHERE severity=? ORDER BY id DESC LIMIT ?",
-            (severity, limit)
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM alerts ORDER BY id DESC LIMIT ?", (limit,)
-        ).fetchall()
-    return [dict(r) for r in rows]
+        clauses.append("severity=?")
+        params.append(severity)
+    if status:
+        clauses.append("status=?")
+        params.append(status)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    params.append(limit)
+    rows = conn.execute(
+        f"SELECT * FROM alerts {where} ORDER BY id DESC LIMIT ?",
+        params,
+    ).fetchall()
+    return [_row_to_alert(r) for r in rows]
+
+
+def _row_to_alert(row) -> dict:
+    d = dict(row)
+    d.setdefault("status", "New")
+    d.setdefault("analyst_notes", "")
+    return d
+
+
+def update_alert_triage(
+    alert_id: int,
+    status: str = None,
+    analyst_notes: str = None,
+) -> bool:
+    """
+    Update triage fields on a single alert.  Returns False if alert not found
+    or status value is invalid.
+    """
+    if status is not None and status not in TRIAGE_STATUSES:
+        return False
+
+    conn = _get_conn()
+    sets, params = [], []
+    if status is not None:
+        sets.append("status=?")
+        params.append(status)
+    if analyst_notes is not None:
+        # Cap notes length to keep rows small on embedded hardware.
+        sets.append("analyst_notes=?")
+        params.append(str(analyst_notes)[:8192])
+    if not sets:
+        return False
+
+    params.append(alert_id)
+    cur = conn.execute(
+        f"UPDATE alerts SET {', '.join(sets)} WHERE id=?",
+        params,
+    )
+    conn.commit()
+    return cur.rowcount > 0
 
 
 def get_stats() -> dict:
@@ -180,10 +268,11 @@ def get_stats() -> dict:
     by_category = {r["category"]: r["cnt"] for r in cat_rows}
 
     # Events per hour (last 24h)
-    hour_rows = conn.execute("""
-        SELECT strftime('%Y-%m-%dT%H:00:00', timestamp) as hour, COUNT(*) as cnt
+    ts = _ts_expr("timestamp")
+    hour_rows = conn.execute(f"""
+        SELECT strftime('%Y-%m-%dT%H:00:00', {ts}) as hour, COUNT(*) as cnt
         FROM events
-        WHERE timestamp >= datetime('now', '-24 hours')
+        WHERE julianday({ts}) >= julianday('now', '-24 hours')
         GROUP BY hour
         ORDER BY hour
     """).fetchall()
@@ -200,6 +289,10 @@ def get_stats() -> dict:
     """).fetchall()
     top_ips = [{"ip": r["ip"], "count": r["cnt"]} for r in ip_rows]
 
+    purple_team = conn.execute(
+        "SELECT COUNT(*) FROM events WHERE category='purple_team'"
+    ).fetchone()[0]
+
     return {
         "total_events":  total_events,
         "total_alerts":  total_alerts,
@@ -207,6 +300,55 @@ def get_stats() -> dict:
         "by_category":   by_category,
         "events_by_hour": by_hour,
         "top_src_ips":   top_ips,
+        "purple_team_events": purple_team,
+    }
+
+
+def get_v1_stats() -> dict:
+    """
+    Extended stats for /api/v1/stats — aggregation done in SQLite so the
+    browser only receives compact JSON for Chart.js rendering.
+    """
+    conn = _get_conn()
+    base = get_stats()
+
+    # Alert volume per hour (last 24h) — mirrors events_by_hour query.
+    ts = _ts_expr("timestamp")
+    alert_hour_rows = conn.execute(f"""
+        SELECT strftime('%Y-%m-%dT%H:00:00', {ts}) as hour, COUNT(*) as cnt
+        FROM alerts
+        WHERE julianday({ts}) >= julianday('now', '-24 hours')
+        GROUP BY hour
+        ORDER BY hour
+    """).fetchall()
+    alerts_by_hour = [{"hour": r["hour"], "count": r["cnt"]} for r in alert_hour_rows]
+
+    # MITRE ATT&CK tactic distribution (non-null mitre IDs only).
+    mitre_rows = conn.execute("""
+        SELECT mitre, COUNT(*) as cnt
+        FROM alerts
+        WHERE mitre IS NOT NULL AND mitre != ''
+        GROUP BY mitre
+        ORDER BY cnt DESC
+        LIMIT 12
+    """).fetchall()
+    by_mitre = {r["mitre"]: r["cnt"] for r in mitre_rows}
+
+    # Triage status breakdown for open-incident KPIs.
+    triage_rows = conn.execute("""
+        SELECT COALESCE(status, 'New') as status, COUNT(*) as cnt
+        FROM alerts
+        GROUP BY status
+    """).fetchall()
+    by_triage_status = {r["status"]: r["cnt"] for r in triage_rows}
+
+    return {
+        **base,
+        "alerts_by_hour": alerts_by_hour,
+        "by_mitre": by_mitre,
+        "by_triage_status": by_triage_status,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "api_version": "v1",
     }
 
 
@@ -241,3 +383,42 @@ def get_rule_stats() -> list[dict]:
         }
         for r in rows
     ]
+
+
+def prune_old_data(retention_days: int = None) -> dict:
+    """
+    Delete events and alerts older than retention_days.
+    Returns counts of deleted rows. Set SIEM_RETENTION_DAYS=0 to disable.
+    """
+    days = RETENTION_DAYS if retention_days is None else retention_days
+    if days <= 0:
+        return {"deleted_events": 0, "deleted_alerts": 0, "skipped": True}
+
+    ts_events = _ts_expr("timestamp")
+    ts_alerts = _ts_expr("timestamp")
+    cutoff = f"-{days} days"
+
+    with _write_lock:
+        conn = _get_conn()
+        alerts_deleted = conn.execute(
+            f"""DELETE FROM alerts
+                WHERE julianday({ts_alerts}) < julianday('now', ?)""",
+            (cutoff,),
+        ).rowcount
+        events_deleted = conn.execute(
+            f"""DELETE FROM events
+                WHERE julianday({ts_events}) < julianday('now', ?)""",
+            (cutoff,),
+        ).rowcount
+        conn.commit()
+
+    if events_deleted or alerts_deleted:
+        logger.info(
+            "[DB] Pruned %d events, %d alerts (retention=%d days)",
+            events_deleted, alerts_deleted, days,
+        )
+    return {
+        "deleted_events": events_deleted,
+        "deleted_alerts": alerts_deleted,
+        "retention_days": days,
+    }

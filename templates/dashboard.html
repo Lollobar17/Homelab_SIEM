@@ -14,7 +14,7 @@
   --bg0:#080c10;--bg1:#0d1117;--bg2:#141b24;--bg3:#1c2533;
   --line:#1e2d3d;--text:#c9d5e0;--muted:#4a6070;
   --accent:#00d9ff;--green:#3ddc97;--yellow:#f7c94b;
-  --orange:#ff8c42;--red:#ff4757;--crit:#e74c3c;--cloud:#a78bfa;
+  --orange:#ff8c42;--red:#ff4757;--crit:#e74c3c;--cloud:#a78bfa;--purple:#c084fc;
   --sidebar-w:240px;--topbar-h:60px;
   --font-ui:'Syne',sans-serif;--font-mono:'JetBrains Mono',monospace;
 }
@@ -121,6 +121,7 @@ td{padding:12px 18px;vertical-align:middle;}
 .badge-generic{background:rgba(74,96,112,.12);color:var(--muted);border:1px solid rgba(74,96,112,.2);}
 .badge-cloud{background:rgba(167,139,250,.15);color:var(--cloud);border:1px solid rgba(167,139,250,.3);}
 .badge-suricata{background:rgba(255,140,66,.12);color:var(--orange);border:1px solid rgba(255,140,66,.2);}
+.badge-purple_team{background:rgba(192,132,252,.12);color:var(--purple);border:1px solid rgba(192,132,252,.25);}
 
 .rule-id{color:var(--accent);font-family:var(--font-mono);font-size:12px;white-space:nowrap;}
 .mitre{font-family:var(--font-mono);font-size:11px;background:rgba(0,217,255,.08);border:1px solid rgba(0,217,255,.15);color:var(--accent);padding:2px 8px;border-radius:4px;white-space:nowrap;}
@@ -176,6 +177,24 @@ td{padding:12px 18px;vertical-align:middle;}
 
 /* Alert timeline chart */
 .alert-timeline-wrap{position:relative;height:160px;margin-bottom:20px;}
+
+/* Incident triage controls */
+.triage-panel{background:var(--bg0);border:1px solid var(--line);border-radius:8px;padding:16px 18px;margin-top:8px;}
+.triage-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;}
+.triage-label{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);min-width:52px;}
+.triage-select,.triage-notes{font-family:var(--font-mono);font-size:12px;background:var(--bg3);border:1px solid var(--line);color:var(--text);border-radius:4px;outline:none;}
+.triage-select{padding:6px 10px;cursor:pointer;}
+.triage-select:focus,.triage-notes:focus{border-color:var(--accent);}
+.triage-notes{width:100%;min-height:72px;padding:10px 12px;resize:vertical;line-height:1.5;}
+.triage-save{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:6px 16px;border-radius:4px;cursor:pointer;border:1px solid var(--accent);background:transparent;color:var(--accent);letter-spacing:.06em;transition:all .15s;}
+.triage-save:hover{background:var(--accent);color:var(--bg0);}
+.triage-save:disabled{opacity:.45;cursor:not-allowed;}
+.triage-save.saved{border-color:var(--green);color:var(--green);}
+.triage-status-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-family:var(--font-mono);}
+.triage-New{background:rgba(0,217,255,.12);color:var(--accent);border:1px solid rgba(0,217,255,.25);}
+.triage-In-Progress{background:rgba(247,201,75,.12);color:var(--yellow);border:1px solid rgba(247,201,75,.25);}
+.triage-Resolved{background:rgba(61,220,151,.12);color:var(--green);border:1px solid rgba(61,220,151,.25);}
+.triage-False-Positive{background:rgba(74,96,112,.2);color:var(--muted);border:1px solid rgba(74,96,112,.3);}
 </style>
 </head>
 <body>
@@ -212,8 +231,8 @@ td{padding:12px 18px;vertical-align:middle;}
         <div class="kpi ok"><div class="kpi-label">Total Events</div><div class="kpi-value" id="kpi-events">–</div><div class="kpi-sub">ingested</div></div>
       </div>
       <div class="charts-row">
-        <div class="card"><div class="card-title">Events per hour — last 24h</div><div class="chart-wrap"><canvas id="chartTimeline"></canvas></div></div>
-        <div class="card"><div class="card-title">Events by category</div><div class="chart-wrap"><canvas id="chartCat"></canvas></div></div>
+        <div class="card"><div class="card-title">Log volume — last 24h</div><div class="chart-wrap"><canvas id="chartTimeline"></canvas></div></div>
+        <div class="card"><div class="card-title">Alert distribution by severity</div><div class="chart-wrap"><canvas id="chartAlertSev"></canvas></div></div>
       </div>
       <div class="bottom-row">
         <div class="card">
@@ -245,12 +264,15 @@ td{padding:12px 18px;vertical-align:middle;}
             <button class="filter-btn sev-high" onclick="filterAlerts('HIGH',this)">High</button>
             <button class="filter-btn sev-medium" onclick="filterAlerts('MEDIUM',this)">Medium</button>
             <button class="filter-btn sev-low" onclick="filterAlerts('LOW',this)">Low</button>
+            <button class="filter-btn" onclick="filterAlertsByStatus('New',this)">New</button>
+            <button class="filter-btn" onclick="filterAlertsByStatus('In Progress',this)">In Progress</button>
+            <button class="filter-btn" style="color:var(--purple)" onclick="filterPurpleAlerts(this)">Purple</button>
             <button class="export-btn" onclick="exportAlerts()">↓ CSV</button>
           </div>
         </div>
         <table>
-          <thead><tr><th>Time</th><th>Rule ID</th><th>Name</th><th>Severity</th><th>MITRE</th><th>Count</th></tr></thead>
-          <tbody id="alertsTbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+          <thead><tr><th>Time</th><th>Rule ID</th><th>Name</th><th>Severity</th><th>Status</th><th>MITRE</th><th>Count</th></tr></thead>
+          <tbody id="alertsTbody"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -269,6 +291,7 @@ td{padding:12px 18px;vertical-align:middle;}
             <button class="filter-btn" onclick="filterEvents('kernel',this)">Kernel</button>
             <button class="filter-btn" onclick="filterEvents('syslog',this)">Syslog</button>
             <button class="filter-btn" onclick="filterEvents('cloud',this)">Cloud</button>
+            <button class="filter-btn" style="color:var(--purple)" onclick="filterEvents('purple_team',this)">Purple</button>
             <button class="export-btn" onclick="exportEvents()">↓ CSV</button>
           </div>
         </div>
@@ -373,10 +396,12 @@ function showTab(name,el){
   if(name==='alerts')     loadAlerts();
 }
 
-// ── Charts ──
-let chartTimeline,chartCat,chartAlertTL;
+// ── Charts (all rendering client-side via Chart.js — zero server CPU) ──
+let chartTimeline,chartAlertSev,chartAlertTL;
 const GRID='#1e2d3d',TICK={color:'#4a6070',font:{family:'JetBrains Mono',size:11}};
-const CHART_OPTS={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:GRID},ticks:TICK},y:{grid:{color:GRID},ticks:TICK}}};
+const CHART_OPTS={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:GRID},ticks:TICK},y:{grid:{color:GRID},ticks:TICK,beginAtZero:true}}};
+const SEV_COLORS={CRITICAL:'#e74c3c',HIGH:'#ff4757',MEDIUM:'#ff8c42',LOW:'#f7c94b'};
+const TRIAGE_STATUSES=['New','In Progress','Resolved','False Positive'];
 
 // ── GeoIP cache ──
 const _geoCache={};
@@ -400,28 +425,31 @@ function countryFlag(code){
   return String.fromCodePoint(...[...code.toUpperCase()].map(c=>c.charCodeAt(0)+127397));
 }
 
-// ── Stats ──
+// ── Stats (fetched from /api/v1/stats; charts rendered in-browser) ──
 async function loadStats(){
   try{
-    const d=await fetch('/api/stats').then(r=>r.json());
+    const d=await fetch('/api/v1/stats').then(r=>r.json());
     document.getElementById('kpi-critical').textContent=d.by_severity?.CRITICAL??0;
     document.getElementById('kpi-high').textContent=d.by_severity?.HIGH??0;
     document.getElementById('kpi-medium').textContent=d.by_severity?.MEDIUM??0;
     document.getElementById('kpi-events').textContent=d.total_events??0;
 
+    // Line chart — log volume trend (last 24h, hourly buckets from SQLite).
     const hours=d.events_by_hour??[];
     const labels=hours.map(h=>h.hour?.slice(11,16)??'');
     const counts=hours.map(h=>h.count);
     if(!chartTimeline){
-      chartTimeline=new Chart(document.getElementById('chartTimeline'),{type:'bar',data:{labels,datasets:[{data:counts,backgroundColor:'rgba(0,217,255,.22)',borderColor:'rgba(0,217,255,.7)',borderWidth:1,borderRadius:3}]},options:CHART_OPTS});
-    }else{chartTimeline.data.labels=labels;chartTimeline.data.datasets[0].data=counts;chartTimeline.update();}
+      chartTimeline=new Chart(document.getElementById('chartTimeline'),{type:'line',data:{labels,datasets:[{data:counts,borderColor:'#00d9ff',backgroundColor:'rgba(0,217,255,.08)',tension:.3,fill:true,pointRadius:3,pointBackgroundColor:'#00d9ff'}]},options:CHART_OPTS});
+    }else{chartTimeline.data.labels=labels;chartTimeline.data.datasets[0].data=counts;chartTimeline.update('none');}
 
-    const cats=Object.keys(d.by_category??{});
-    const cvals=cats.map(c=>d.by_category[c]);
-    const COLORS=['#00d9ff','#3ddc97','#f7c94b','#ff8c42','#ff4757','#a78bfa','#9b59b6'];
-    if(!chartCat){
-      chartCat=new Chart(document.getElementById('chartCat'),{type:'doughnut',data:{labels:cats,datasets:[{data:cvals,backgroundColor:COLORS,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'right',labels:{color:'#4a6070',font:{family:'JetBrains Mono',size:11},padding:14}}}}});
-    }else{chartCat.data.labels=cats;chartCat.data.datasets[0].data=cvals;chartCat.update();}
+    // Doughnut — alert distribution by severity (client-side only).
+    const sev=d.by_severity??{};
+    const sevLabels=Object.keys(sev).filter(k=>sev[k]>0);
+    const sevVals=sevLabels.map(k=>sev[k]);
+    const sevColors=sevLabels.map(k=>SEV_COLORS[k]||'#4a6070');
+    if(!chartAlertSev){
+      chartAlertSev=new Chart(document.getElementById('chartAlertSev'),{type:'doughnut',data:{labels:sevLabels,datasets:[{data:sevVals,backgroundColor:sevColors,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'right',labels:{color:'#4a6070',font:{family:'JetBrains Mono',size:11},padding:14}}}}});
+    }else{chartAlertSev.data.labels=sevLabels;chartAlertSev.data.datasets[0].data=sevVals;chartAlertSev.data.datasets[0].backgroundColor=sevColors;chartAlertSev.update('none');}
 
     const ipData=d.top_src_ips??[];
     const maxCnt=ipData.length?Math.max(...ipData.map(i=>i.count)):1;
@@ -440,29 +468,46 @@ async function loadStats(){
 function deduplicateAlerts(alerts){
   const map={};
   for(const a of alerts){
-    const key=`${a.rule_id}`;
+    const key=`${a.rule_id}|${a.source_ip||'unknown'}`;
     if(!map[key]){map[key]={...a,_count:1};}
     else{map[key]._count++;if(new Date(a.timestamp)>new Date(map[key].timestamp))map[key].timestamp=a.timestamp;}
   }
   return Object.values(map).sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
 }
 
-let allAlerts=[],alertSevFilter=null,showDedup=true;
+let allAlerts=[],alertSevFilter=null,alertStatusFilter=null,alertPurpleOnly=false,showDedup=true;
 async function loadAlerts(){
   allAlerts=await fetch('/api/alerts?limit=500').then(r=>r.json());
   buildAlertTimeline(allAlerts);
   applyAlertFilters();
 }
 function filterAlerts(sev,btn){
-  alertSevFilter=sev;
+  alertSevFilter=sev;alertStatusFilter=null;alertPurpleOnly=false;
   document.querySelectorAll('#tab-alerts .filter-btn:not(.export-btn)').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   applyAlertFilters();
+}
+function filterAlertsByStatus(st,btn){
+  alertStatusFilter=st;alertSevFilter=null;alertPurpleOnly=false;
+  document.querySelectorAll('#tab-alerts .filter-btn:not(.export-btn)').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  applyAlertFilters();
+}
+function filterPurpleAlerts(btn){
+  alertPurpleOnly=true;alertSevFilter=null;alertStatusFilter=null;
+  document.querySelectorAll('#tab-alerts .filter-btn:not(.export-btn)').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  applyAlertFilters();
+}
+function triageBadgeClass(st){
+  return 'triage-'+String(st||'New').replace(/ /g,'-');
 }
 function applyAlertFilters(){
   const q=(document.getElementById('alertSearch')?.value||'').toLowerCase();
   let data=allAlerts;
   if(alertSevFilter) data=data.filter(a=>a.severity===alertSevFilter);
+  if(alertStatusFilter) data=data.filter(a=>(a.status||'New')===alertStatusFilter);
+  if(alertPurpleOnly) data=data.filter(a=>(a.rule_id||'').startsWith('CAL-'));
   if(q) data=data.filter(a=>JSON.stringify(a).toLowerCase().includes(q));
   const deduped=deduplicateAlerts(data);
   const suppressed=data.length-deduped.length;
@@ -476,10 +521,11 @@ function renderAlerts(data){
         <td class="rule-id">${a.rule_id??'–'}</td>
         <td>${escHtml(a.rule_name??'–')}</td>
         <td><span class="badge badge-${a.severity}">${a.severity}</span></td>
+        <td><span class="triage-status-badge ${triageBadgeClass(a.status)}">${escHtml(a.status||'New')}</span></td>
         <td>${a.mitre?`<span class="mitre">${a.mitre}</span>`:'–'}</td>
         <td>${a._count>1?`<span class="dedup-count">×${a._count}</span>`:'1'}</td>
       </tr>`).join('')
-    :'<tr><td colspan="6" class="empty">No alerts</td></tr>';
+    :'<tr><td colspan="7" class="empty">No alerts</td></tr>';
 }
 
 function buildAlertTimeline(alerts){
@@ -655,10 +701,16 @@ function copyRaw(){
   });
 }
 
-// ── Alert Modal ──
+// ── Alert Modal + Incident Triage ──
+let _currentAlert=null;
 function openAlertModal(a){
+  _currentAlert=a;
   document.getElementById('alertModalTitle').innerHTML=
     `Alert Detail &nbsp;<span class="badge badge-${a.severity}">${a.severity}</span>`;
+  const status=a.status||'New';
+  const notes=escHtml(a.analyst_notes||'');
+  const statusOpts=TRIAGE_STATUSES.map(s=>
+    `<option value="${s}"${s===status?' selected':''}>${s}</option>`).join('');
   document.getElementById('alertModalBody').innerHTML=`
     <div class="modal-section">
       <div class="modal-section-title">Alert Information</div>
@@ -667,6 +719,7 @@ function openAlertModal(a){
         <div class="modal-meta-item"><div class="modal-meta-key">Rule ID</div><div class="modal-meta-val" style="color:var(--accent)">${a.rule_id||'–'}</div></div>
         <div class="modal-meta-item"><div class="modal-meta-key">Severity</div><div class="modal-meta-val">${a.severity||'–'}</div></div>
         <div class="modal-meta-item"><div class="modal-meta-key">Event ID</div><div class="modal-meta-val">${a.event_id||'–'}</div></div>
+        <div class="modal-meta-item"><div class="modal-meta-key">Status</div><div class="modal-meta-val"><span class="triage-status-badge ${triageBadgeClass(status)}">${escHtml(status)}</span></div></div>
         ${a.mitre?`<div class="modal-meta-item"><div class="modal-meta-key">MITRE ATT&CK</div><div class="modal-meta-val"><span class="mitre">${a.mitre}</span></div></div>`:''}
         ${a._count>1?`<div class="modal-meta-item"><div class="modal-meta-key">Occurrences</div><div class="modal-meta-val" style="color:var(--orange)">×${a._count}</div></div>`:''}
       </div>
@@ -678,8 +731,48 @@ function openAlertModal(a){
     ${a.description?`<div class="modal-section">
       <div class="modal-section-title">Description</div>
       <div style="font-size:13px;color:var(--muted);line-height:1.7;padding:4px 0">${escHtml(a.description)}</div>
-    </div>`:''}`;
+    </div>`:''}
+    <div class="modal-section">
+      <div class="modal-section-title">Incident Triage</div>
+      <div class="triage-panel" id="triagePanel">
+        <div class="triage-row">
+          <span class="triage-label">Status</span>
+          <select class="triage-select" id="triageStatus">${statusOpts}</select>
+        </div>
+        <div class="triage-row" style="flex-direction:column;align-items:stretch">
+          <span class="triage-label">Analyst notes</span>
+          <textarea class="triage-notes" id="triageNotes" placeholder="Investigation notes, IOCs, actions taken…">${notes}</textarea>
+        </div>
+        <button class="triage-save" id="triageSaveBtn" onclick="saveTriage()">Save triage</button>
+      </div>
+    </div>`;
   document.getElementById('alertModal').classList.add('open');
+}
+
+async function saveTriage(){
+  if(!_currentAlert?.id) return;
+  const btn=document.getElementById('triageSaveBtn');
+  const status=document.getElementById('triageStatus').value;
+  const analyst_notes=document.getElementById('triageNotes').value;
+  btn.disabled=true;btn.textContent='Saving…';
+  try{
+    const r=await fetch(`/api/v1/alerts/${_currentAlert.id}/triage`,{
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({status,analyst_notes}),
+    });
+    if(!r.ok) throw new Error((await r.json()).error||'save failed');
+    _currentAlert.status=status;
+    _currentAlert.analyst_notes=analyst_notes;
+    const idx=allAlerts.findIndex(x=>x.id===_currentAlert.id);
+    if(idx>=0){allAlerts[idx].status=status;allAlerts[idx].analyst_notes=analyst_notes;}
+    btn.textContent='Saved';btn.classList.add('saved');
+    applyAlertFilters();
+    setTimeout(()=>{btn.textContent='Save triage';btn.classList.remove('saved');btn.disabled=false;},1500);
+  }catch(e){
+    btn.textContent='Error — retry';btn.disabled=false;
+    console.error(e);
+  }
 }
 
 // ── Export CSV ──
@@ -696,7 +789,7 @@ function downloadCSV(csv,filename){
 function exportAlerts(){
   const data=allAlerts;
   if(!data.length) return;
-  const csv=toCSV(data,['timestamp','rule_id','rule_name','severity','mitre','event_id']);
+  const csv=toCSV(data,['timestamp','rule_id','rule_name','severity','status','analyst_notes','mitre','event_id']);
   downloadCSV(csv,`siem_alerts_${new Date().toISOString().slice(0,10)}.csv`);
 }
 function exportEvents(){

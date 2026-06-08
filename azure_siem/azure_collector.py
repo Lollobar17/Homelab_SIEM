@@ -14,7 +14,7 @@ Dependencies:
 Configuration (config.json):
     AZURE_STORAGE_CONNECTION_STRING
     AZURE_STORAGE_CONTAINER  (default: insights-logs-flowlogflowevent)
-    SIEM_INGEST_URL          (default: http://localhost:5000/api/ingest)
+    SIEM_INGEST_URL          (default: http://localhost:5000/api/v1/ingress)
 """
 
 import os
@@ -26,9 +26,10 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-import requests
 from azure.storage.blob import BlobServiceClient
 from azure.core.exceptions import AzureError
+
+from azure_siem.ingest_client import send_events
 
 # ── Config ───────────────────────────────────
 logging.basicConfig(
@@ -48,7 +49,7 @@ def _cfg(key, default=None):
 
 CONN_STR        = _cfg("AZURE_STORAGE_CONNECTION_STRING", "")
 CONTAINER_NAME  = _cfg("AZURE_STORAGE_CONTAINER", "insights-logs-flowlogflowevent")
-SIEM_INGEST_URL = _cfg("SIEM_INGEST_URL", "http://localhost:5000/api/ingest")
+SIEM_INGEST_URL = _cfg("SIEM_INGEST_URL", "http://localhost:5000/api/v1/ingress")
 POLL_INTERVAL   = int(_cfg("AZURE_POLL_INTERVAL", 60))
 STATE_FILE      = Path(_cfg("AZURE_STATE_FILE", ".azure_collector_state.json"))
 
@@ -184,21 +185,6 @@ def _read_blob(blob_client):
         logger.error(f"[Blob] Read error: {e}")
         return ""
 
-# ── Ingest ───────────────────────────────────
-_SESSION = requests.Session()
-
-def _send_to_siem(event):
-    try:
-        resp = _SESSION.post(
-            SIEM_INGEST_URL,
-            json={"raw": event["raw"], "source": event["source"], "_pre_parsed": event},
-            timeout=5,
-        )
-        return resp.status_code == 201
-    except Exception as e:
-        logger.error(f"[Ingest] Error: {e}")
-        return False
-
 # ── Polling ──────────────────────────────────
 def _poll_once(service_client, processed):
     sent = 0
@@ -233,13 +219,18 @@ def _poll_once(service_client, processed):
             events = _parse_flow_blob(content)
             logger.info(f"[Collector] Parsed {len(events)} events.")
 
-            for event in events:
-                if _send_to_siem(event):
-                    sent += 1
+            batch_sent, batch_failed = send_events(events, SIEM_INGEST_URL)
+            sent += batch_sent
 
-            processed.add(blob_name)
-            _save_state(processed)
-            logger.info(f"[Collector] Done: {blob_name} ({sent} events sent so far)")
+            if batch_failed == 0:
+                processed.add(blob_name)
+                _save_state(processed)
+                logger.info(f"[Collector] Done: {blob_name} ({batch_sent} events)")
+            else:
+                logger.error(
+                    f"[Collector] {batch_failed}/{len(events)} events failed for "
+                    f"{blob_name} — will retry on next poll"
+                )
 
         except Exception as e:
             logger.error(f"[Collector] Error processing {blob_name}: {e}")

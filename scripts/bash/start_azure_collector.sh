@@ -65,7 +65,7 @@ if [ -f "$FLOW_PID" ] && kill -0 "$(cat "$FLOW_PID")" 2>/dev/null; then
 else
   rm -f "$FLOW_PID"
   echo -e "${GREEN}[INFO]  Starting azure_collector.py...${NC}"
-  nohup python azure_collector.py >> "$FLOW_LOG" 2>&1 &
+  nohup python azure_siem/azure_collector.py >> "$FLOW_LOG" 2>&1 &
   echo $! > "$FLOW_PID"
   sleep 1
   if kill -0 "$(cat "$FLOW_PID")" 2>/dev/null; then
@@ -81,7 +81,7 @@ if [ -f "$ACTIVITY_PID" ] && kill -0 "$(cat "$ACTIVITY_PID")" 2>/dev/null; then
 else
   rm -f "$ACTIVITY_PID"
   echo -e "${GREEN}[INFO]  Starting azure_activity_collector.py...${NC}"
-  nohup python azure_activity_collector.py >> "$ACTIVITY_LOG" 2>&1 &
+  nohup python azure_siem/azure_activity_collector.py >> "$ACTIVITY_LOG" 2>&1 &
   echo $! > "$ACTIVITY_PID"
   sleep 1
   if kill -0 "$(cat "$ACTIVITY_PID")" 2>/dev/null; then
