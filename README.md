@@ -103,19 +103,19 @@ Open dashboard at `http://localhost:30500`
 ## Architecture
 
 ```
-[Local Logs]  [Azure Cloud]  [Sentinel]  [Caldera :8888]
+[Local Logs]  [Azure Cloud]  [Sentinel]      [Caldera :8888]
      ↓              ↓              ↓            ↓
-[collector]   [azure_*]    [sentinel_col]  [caldera_collector]
+[collector]    [azure_*]    [sentinel_col]  [caldera_collector]
      ↓              ↓              ↓            ↓
      └──────────────┴──────────────┴────────────┘
                          ↓
            POST /api/v1/ingress (batch)  |  legacy /api/ingest
                          ↓
-                 [detector.py — 41 rules]
-                                ↓
-                   [storage.py — SQLite + API]
-                                ↓
-                   [Dashboard + Discord + CSV]
+             [detector.py — 41 rules]
+                         ↓
+           [storage.py — SQLite + API]
+                         ↓
+           [Dashboard + Discord + CSV]
 ```
 
 -----
