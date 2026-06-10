@@ -5,6 +5,63 @@ This project follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 -----
 
+## [2.4.0] - 2026-06-10
+
+> Kubernetes deployment and CI/CD pipeline — the SIEM is now fully containerized
+> and deployable on a k3d cluster with automated build, push, and rolling update
+> via GitHub Actions.
+
+### Added
+
+- **Multi-stage Dockerfile** (`k8s/Dockerfile`) — builder + runtime stages;
+  non-root user (`siem:siem`, UID 1000); `readOnlyRootFilesystem`; drops all
+  Linux capabilities. Final image ~63 MB.
+- **K8s manifests** (`k8s/manifests/`) — full namespace-isolated deployment:
+  - `namespace.yaml` — dedicated `homelab-siem` namespace.
+  - `configmap.yaml` — runtime config and env injection.
+  - `pvc.yaml` — 1 Gi `ReadWriteOnce` PersistentVolumeClaim for SQLite.
+  - `deployment.yaml` — liveness, readiness and startup probes; emptyDir
+    volumes for `/app/logs` and `/tmp`; resource requests/limits.
+  - `service.yaml` — NodePort `:30500` (HTTP) and `:30514` (syslog UDP).
+  - `networkpolicy.yaml` — default-deny-all + minimal allow rules (Zero Trust).
+  - `hpa.yaml` — HorizontalPodAutoscaler (min 1, max 3 replicas; ready for
+    PostgreSQL migration).
+- **`k8s/deploy.sh`** — automation script: `build`, `deploy`, `all`, `status`,
+  `logs`, `teardown`. Auto-detects k3s / k3d / minikube / kind.
+- **`k8s/docker-compose.yml`** — local dev stack for pre-K8s testing.
+- **CI/CD pipeline** (`.github/workflows/ci-cd.yml`) — three-job cascade:
+  1. Lint (flake8) + smoke test on every push.
+  2. Docker multi-arch build (amd64 + arm64) + push to Docker Hub on `main`/tag.
+  3. `kubectl set image` rolling update + health check + auto-rollback on failure.
+- **PR check workflow** (`.github/workflows/pr-check.yml`) — lint + test +
+  Docker build (no push) on every pull request to `main`.
+- **`k8s/README-K8s.md`** — full setup and operations guide for the K8s deployment.
+
+### Security
+
+- Container runs as non-root with read-only root filesystem.
+- NetworkPolicy enforces Zero Trust: all traffic denied by default,
+  only HTTP `:5000` and syslog UDP `:5140` explicitly allowed.
+- All Linux capabilities dropped (`CAP_ALL`).
+- Docker Hub credentials stored as GitHub Secrets (Access Token, not password).
+
+### Infrastructure
+
+| Component | Technology |
+|---|---|
+| Container runtime | Docker (multi-stage) |
+| Orchestration | Kubernetes via k3d (WSL2) |
+| Image registry | Docker Hub (`lollobar17/homelab-siem`) |
+| CI/CD | GitHub Actions |
+| Persistence | PVC → SQLite (1 Gi) |
+
+### Tested on
+
+- k3d v5.x on WSL2 (Ubuntu, kernel 6.6.114 Microsoft Standard)
+- Self-healing verified: pod deletion → automatic restart → dashboard recovery
+
+-----
+
 ## [2.3.1] - 2026-06-08
 
 > Caldera integration refinements — smarter parsing, five rules, CPU savings,
@@ -161,58 +218,19 @@ This project follows [Keep a Changelog](https://keepachangelog.com) conventions.
 ### Added — REST API v1
 
 - **`POST /api/v1/ingress`** — structured JSON log ingestion with field validation
-  and normalization (`timestamp`, `source_ip`, `destination_ip`, `event_type`,
-  `severity`, `message`). Supports single events and batch payloads (max 100).
-  Optional `"detect": false` skips the rule engine for archival-only ingestion.
+  and normalization. Supports single events and batch payloads (max 100).
 - **`siem/ingress.py`** — dedicated ingress module for payload validation,
   IP/timestamp normalization and category inference before SQLite insert.
 - **Incident case management (triage)** — `status` and `analyst_notes` columns
-  on the `alerts` table (auto-migrated on startup). Valid statuses:
-  New, In Progress, Resolved, False Positive.
-- **`PATCH /api/v1/alerts/<id>/triage`** — update triage fields via AJAX
-  without page reload. Dashboard alert modal includes status dropdown,
-  notes textarea and save button.
-- **`GET /api/v1/stats`** — extended aggregated metrics: log volume by hour,
-  alert distribution by severity, MITRE ATT&CK counts, triage status breakdown.
-- **Dashboard charts (v2.1)** — overview line chart for log volume (last 24h)
-  and doughnut chart for alert severity distribution rendered via Chart.js.
-- **`docs/API_V1_GUIDE.md`** — full setup and usage guide for ingress,
-  triage and stats APIs.
+  on the `alerts` table (auto-migrated on startup).
+- **`PATCH /api/v1/alerts/<id>/triage`** — update triage fields via AJAX.
+- **`GET /api/v1/stats`** — extended aggregated metrics.
+- **Dashboard charts (v2.1)** — Chart.js line and doughnut charts.
 
 ### Changed
 
 - **`siem/detector.py`** — appends `SENTINEL_RULES` to the main `RULES` list.
-- **`GET /api/alerts`** — added optional `?status=` filter for triage workflow.
-- **`siem/storage.py`** — `get_v1_stats()`, `update_alert_triage()`, indexed `alerts.status`.
-- **`app.py`** — `MAX_CONTENT_LENGTH` set to 512 KB on ingress payloads.
 - **`requirements.txt`** — added `msal>=1.0`.
-- **Bash scripts** — `start_siem.sh`, `stop_siem.sh`, `health_check.sh` updated
-  for Sentinel collector PID management.
-
-### Sentinel configuration
-
-Add to `config.json`:
-
-```json
-{
-  "SENTINEL_TENANT_ID": "<your-tenant-id>",
-  "SENTINEL_CLIENT_ID": "<app-registration-client-id>",
-  "SENTINEL_CLIENT_SECRET": "<client-secret-value>",
-  "SENTINEL_WORKSPACE_ID": "30d15ecc-8789-401c-a9bf-4a490e22b33d"
-}
-```
-
-### Detection Rules — v2.1.0 additions
-
-|ID      |Name                                  |Severity|MITRE    |Source  |
-|--------|--------------------------------------|--------|---------|--------|
-|SENT-001|Sentinel: High/Critical Security Alert|HIGH    |T1078    |Sentinel|
-|SENT-002|Sentinel: Critical Security Alert     |CRITICAL|T1078    |Sentinel|
-|SENT-003|Sentinel: Security Incident Created   |HIGH    |T1078.004|Sentinel|
-|SENT-004|Sentinel: Lateral Movement Detected   |CRITICAL|T1021    |Sentinel|
-|SENT-005|Sentinel: Persistence Tactic Detected |CRITICAL|T1098    |Sentinel|
-|SENT-006|Sentinel: Exfiltration Tactic Detected|CRITICAL|T1048    |Sentinel|
-|SENT-007|Sentinel: Alert Storm (5+ in 5min)    |CRITICAL|T1110    |Sentinel|
 
 -----
 
@@ -225,23 +243,13 @@ Add to `config.json`:
 
 ### Added
 
-- **Azure VNet Flow Logs collector** (`azure_collector.py`) — polls Azure Blob Storage
-  every 60 seconds for NSG/VNet Flow Log blobs (flowLogVersion 4).
-- **Azure Activity Log collector** (`azure_activity_collector.py`) — polls
-  `insights-activity-logs` container for NDJSON activity records.
+- **Azure VNet Flow Logs collector** (`azure_collector.py`)
+- **Azure Activity Log collector** (`azure_activity_collector.py`)
 - **7 Cloud detection rules** (`azure_siem/azure_rules.py`) — CLOUD-001 through CLOUD-007.
 - **7 Activity Log detection rules** (`azure_siem/azure_activity_rules.py`) — CLOUD-008 through CLOUD-014.
 - **`azure_siem/` package** — dedicated Azure integration package.
-- **`/api/ingest` patch** — `_pre_parsed` field support.
 - **Bash automation scripts** (`scripts/bash/`) — WSL2 compatible.
 - **Dashboard v2.0** — event/alert modals, GeoIP, dedup, CSV export, dark mode.
-- **Azure VM** `homelab-vm`, **Storage Account** `homelabsiemflow`,
-  **VNet Flow Log**, **Diagnostic Setting** `homelab-activity-logs`.
-
-### Changed
-
-- `siem/detector.py` — appends AZURE_RULES and AZURE_ACTIVITY_RULES.
-- `requirements.txt` — added `azure-storage-blob>=12.0`.
 
 -----
 
@@ -252,7 +260,6 @@ Add to `config.json`:
 - Suricata integration — live eve.json ingestion
 - Rate limiting on log ingestion
 - Backup and recovery scripts
-- docs/BACKUP_AND_RECOVERY.md, docs/SURICATA_SETUP.md, docs/RULESTATS_GUIDE.md
 
 ### Changed
 
@@ -267,7 +274,6 @@ Add to `config.json`:
 - Rule Editor web UI at /rules
 - /api/rules/stats endpoint
 - Dockerfile and docker-compose.yml
-- docs/DISCORD_GUIDE.md, docs/GEOIP_GUIDE.md, docs/SYSLOG_GUIDE.md
 
 -----
 
@@ -277,7 +283,6 @@ Add to `config.json`:
 
 - siem/geoip.py — GeoIP lookup via ip-api.com with lru_cache
 - siem/notifier.py — Discord webhook notifications
-- geo field added to all alerts
 
 -----
 
@@ -287,7 +292,6 @@ Add to `config.json`:
 
 - AUTH-005, AUTH-006, WEB-004 detection rules
 - Flask/Werkzeug access log parser
-- ANSI escape code stripping
 
 ### Changed
 

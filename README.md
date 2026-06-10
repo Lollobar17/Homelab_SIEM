@@ -2,14 +2,17 @@
 
 A lightweight, self-hosted **Security Information & Event Management** system built in pure Python.
 Designed to learn cybersecurity concepts hands-on — log collection, threat detection, and a live dashboard.
-Extended with full **Azure Cloud Integration** for hybrid on-premise + cloud security monitoring.
+Extended with full **Azure Cloud Integration** for hybrid on-premise + cloud security monitoring,
+and **Kubernetes deployment** with automated CI/CD pipeline.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-3.0-black?style=flat&logo=flask)
 ![SQLite](https://img.shields.io/badge/Storage-SQLite-003B57?style=flat&logo=sqlite)
 ![Azure](https://img.shields.io/badge/Azure-Cloud-0078D4?style=flat&logo=microsoftazure&logoColor=white)
 ![Sentinel](https://img.shields.io/badge/Microsoft-Sentinel-0078D4?style=flat&logo=microsoftazure&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat&logo=docker&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Multi--stage-2496ED?style=flat&logo=docker&logoColor=white)
+![Kubernetes](https://img.shields.io/badge/Kubernetes-k3d-326CE5?style=flat&logo=kubernetes&logoColor=white)
+![CI/CD](https://github.com/Lollobar17/Homelab_SIEM/actions/workflows/ci-cd.yml/badge.svg)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat)
 
 -----
@@ -19,6 +22,7 @@ Extended with full **Azure Cloud Integration** for hybrid on-premise + cloud sec
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Architecture](#architecture)
+- [Kubernetes Deployment](#kubernetes-deployment)
 - [Azure Cloud Integration](#azure-cloud-integration)
 - [API Reference](#api-reference)
 - [Detection Rules](#detection-rules)
@@ -49,7 +53,9 @@ Extended with full **Azure Cloud Integration** for hybrid on-premise + cloud sec
 |**Export CSV**         |One-click export of filtered events and alerts                           |
 |**GeoIP Enrichment**   |Geographic metadata for every source IP via ip-api.com                   |
 |**Discord Alerts**     |Webhook notifications for HIGH and CRITICAL alerts                       |
-|**Docker Compose**     |Single-command deployment with persistent volumes                        |
+|**Kubernetes**         |k3d deployment with NetworkPolicy, PVC, HPA, liveness/readiness probes  |
+|**CI/CD Pipeline**     |GitHub Actions — lint → build → push → rolling update → health check    |
+|**Docker Multi-stage** |Non-root container, read-only filesystem, dropped capabilities           |
 |**Bash Automation**    |start/stop/health-check/log-rotation scripts for WSL2 and Linux          |
 |**Backup & Recovery**  |Automated SQLite backup and restore scripts                              |
 |**REST API v1 Ingress**|`POST /api/v1/ingress` — structured JSON ingestion with batch support    |
@@ -83,6 +89,15 @@ bash scripts/bash/start_siem.sh --no-azure
 docker-compose up -d
 ```
 
+**Option D — Kubernetes (k3d)**
+
+```bash
+k3d cluster create homelab-siem --port "30500:30500@loadbalancer"
+./k8s/deploy.sh all
+```
+
+Open dashboard at `http://localhost:30500`
+
 -----
 
 ## Architecture
@@ -102,6 +117,48 @@ docker-compose up -d
                                 ↓
                    [Dashboard + Discord + CSV]
 ```
+
+-----
+
+## Kubernetes Deployment
+
+The SIEM runs fully containerized on a k3d cluster with enterprise-grade security hardening.
+
+### Security features
+
+- Non-root container (UID 1000) with read-only root filesystem
+- All Linux capabilities dropped (`CAP_ALL`)
+- NetworkPolicy: default-deny-all, Zero Trust model
+- Resource limits (CPU 500m / RAM 512Mi)
+- Liveness, readiness and startup probes
+
+### Quick deploy
+
+```bash
+# Create cluster
+k3d cluster create homelab-siem \
+  --port "30500:30500@loadbalancer" \
+  --port "30514:30514@loadbalancer" \
+  --agents 1
+
+# Build, push and deploy
+./k8s/deploy.sh all
+
+# Check status
+./k8s/deploy.sh status
+```
+
+### CI/CD pipeline
+
+Every `git push` to `main` triggers automatically:
+
+```
+Lint + Test → Docker Build → Push Docker Hub → Rolling Update K8s → Health Check
+                                                      ↓ (on failure)
+                                               Auto Rollback
+```
+
+Full setup guide: `k8s/README-K8s.md`
 
 -----
 
@@ -194,8 +251,18 @@ Full walkthrough: `docs/API_V1_GUIDE.md`
 |WEB-002 |Web Brute Force (4xx Flood)       |MEDIUM  |T1110    |
 |WEB-003 |SQL Injection Attempt             |HIGH    |T1190    |
 |WEB-004 |Web Brute Force — High Volume     |CRITICAL|T1110    |
-|SYS-001 |OOM Killer Activated              |MEDIUM  |—        |
-|SYS-002 |Segmentation Fault                |LOW     |—        |
+|G-001   |Generic Error Spike               |LOW     |T1499    |
+|G-002   |Repeated Failed Commands          |MEDIUM  |T1059    |
+
+### Caldera Purple Team Rules (5)
+
+|ID    |Name                        |Severity|MITRE |
+|------|----------------------------|--------|------|
+|CAL-001|Caldera Operation Started  |MEDIUM  |T1059 |
+|CAL-002|Lateral Movement Detected  |HIGH    |T1021 |
+|CAL-003|Persistence Tactic         |HIGH    |T1098 |
+|CAL-004|Command Execution          |MEDIUM  |T1059 |
+|CAL-005|Exfiltration Detected      |HIGH    |T1048 |
 
 ### Cloud Rules — Azure VNet Flow Logs (7)
 
@@ -257,18 +324,15 @@ Edit `config.json`:
 |`discord_webhook`                |—                                 |Discord webhook URL        |
 |`AZURE_STORAGE_CONNECTION_STRING`|—                                 |Azure storage credentials  |
 |`AZURE_STORAGE_CONTAINER`        |insights-logs-flowlogflowevent    |Flow logs container        |
-|`SIEM_INGEST_URL`                |<http://localhost:5000/api/v1/ingress>|SIEM batch ingest endpoint |
+|`SIEM_INGEST_URL`                |http://localhost:5000/api/v1/ingress|SIEM batch ingest endpoint|
 |`SIEM_RETENTION_DAYS`            |30                                |Auto-prune DB age (0=off)  |
-|`CALDERA_URL`                    |<http://127.0.0.1:8888>           |Caldera REST API (external)|
+|`CALDERA_URL`                    |http://127.0.0.1:8888             |Caldera REST API           |
 |`CALDERA_API_KEY`                |—                                 |Caldera API key (optional) |
 |`CALDERA_POLL_INTERVAL`          |120                               |Collector poll seconds     |
-|`CALDERA_DETECT`                 |true                              |`false` = archive only     |
-|`CALDERA_FINISHED_GRACE`         |600                               |Tail finished ops (seconds)|
 |`SENTINEL_TENANT_ID`             |—                                 |Azure tenant ID            |
 |`SENTINEL_CLIENT_ID`             |—                                 |Service Principal client ID|
 |`SENTINEL_CLIENT_SECRET`         |—                                 |Service Principal secret   |
 |`SENTINEL_WORKSPACE_ID`          |—                                 |Log Analytics workspace ID |
-
 
 > config.json is excluded from version control via .gitignore. Never commit credentials.
 
@@ -285,12 +349,6 @@ python scripts/prune_db.py --days 14    # custom retention window
 
 Full guide: `docs/BACKUP_AND_RECOVERY.md`
 
-Schedule daily prune via cron:
-
-```bash
-0 3 * * * cd /path/to/Homelab_SIEM && .venv/bin/python scripts/prune_db.py
-```
-
 -----
 
 ## Project Structure
@@ -303,9 +361,24 @@ Homelab_SIEM/
 ├── requirements.txt
 ├── simulate_logs.py
 ├── simulate_caldera.py
-├── Dockerfile
-├── docker-compose.yml
 ├── CHANGELOG.md
+├── k8s/
+│   ├── Dockerfile                  (multi-stage, non-root)
+│   ├── docker-compose.yml          (local dev stack)
+│   ├── deploy.sh                   (cluster automation)
+│   ├── README-K8s.md
+│   └── manifests/
+│       ├── namespace.yaml
+│       ├── configmap.yaml
+│       ├── pvc.yaml
+│       ├── deployment.yaml
+│       ├── service.yaml
+│       ├── networkpolicy.yaml
+│       └── hpa.yaml
+├── .github/
+│   └── workflows/
+│       ├── ci-cd.yml               (build → push → deploy)
+│       └── pr-check.yml            (lint + test on PR)
 ├── siem/
 │   ├── collector.py
 │   ├── detector.py
@@ -317,7 +390,7 @@ Homelab_SIEM/
 │   └── notifier.py
 ├── azure_siem/
 │   ├── __init__.py
-│   ├── ingest_client.py            (batch v1 ingress helper)
+│   ├── ingest_client.py
 │   ├── azure_collector.py
 │   ├── azure_activity_collector.py
 │   ├── azure_rules.py
@@ -368,14 +441,17 @@ Homelab_SIEM/
 - [x] Azure VNet Flow Logs integration (Phase 1)
 - [x] Azure Activity Log integration (Phase 2)
 - [x] Microsoft Sentinel integration (Phase 3)
-- [x] 33 total detection rules (12 on-premise + 21 cloud)
 - [x] Dashboard v2.0/v2.1 — modals, GeoIP, dedup, CSV export, dark mode, Chart.js
 - [x] REST API v1 — structured ingress, triage workflow, extended stats
 - [x] Bash automation scripts (WSL2 compatible)
 - [x] v2.2.0 reliability hardening (SQLite WAL, batch ingest, retention)
-- [x] MITRE Caldera integration — lightweight sidecar (`docs/CALDERA_INTEGRATION.md`)
+- [x] MITRE Caldera integration — lightweight sidecar
+- [x] Kubernetes deployment — k3d, NetworkPolicy, PVC, HPA, probes
+- [x] CI/CD pipeline — GitHub Actions, Docker Hub, rolling update, auto-rollback
 - [ ] Collector status indicator in dashboard topbar
-- [ ] Kubernetes cluster monitoring (future)
+- [ ] Migrate SQLite → PostgreSQL (enables horizontal scaling)
+- [ ] Helm chart for parametrized distribution
+- [ ] Prometheus + Grafana sidecar for K8s-native metrics
 
 -----
 
@@ -384,6 +460,7 @@ Homelab_SIEM/
 - [MITRE ATT&CK](https://attack.mitre.org)
 - [Microsoft Sentinel Documentation](https://learn.microsoft.com/en-us/azure/sentinel/)
 - [Azure Network Watcher](https://learn.microsoft.com/en-us/azure/network-watcher/)
+- [Kubernetes Documentation](https://kubernetes.io/docs/)
 - [TryHackMe](https://tryhackme.com)
 - [Suricata Documentation](https://suricata.readthedocs.io)
 

@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homelab-siem
+  namespace: homelab-siem
+  labels:
+    app.kubernetes.io/name: homelab-siem
+    app.kubernetes.io/component: app
+    app.kubernetes.io/version: "2.1.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: homelab-siem
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: homelab-siem
+        app.kubernetes.io/name: homelab-siem
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: siem
+          image: lollobar17/homelab-siem:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+            - name: syslog-udp
+              containerPort: 5140
+              protocol: UDP
+          envFrom:
+            - configMapRef:
+                name: siem-config
+          volumeMounts:
+            - name: siem-data
+              mountPath: /app/data
+            - name: siem-logs
+              mountPath: /app/logs
+            - name: config-file
+              mountPath: /app/config.json
+              subPath: config.json
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+      volumes:
+        - name: siem-data
+          persistentVolumeClaim:
+            claimName: siem-db-pvc
+        - name: siem-logs
+          emptyDir: {}
+        - name: config-file
+          configMap:
+            name: siem-config
+            items:
+              - key: config.json
+                path: config.json
+        - name: tmp
+          emptyDir: {}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30

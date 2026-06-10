@@ -1,0 +1,44 @@
+name: PR Check
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check:
+    name: "Lint + Test + Build (no push)"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Installa dipendenze
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install flake8 pytest
+
+      - name: Lint
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Test
+        run: |
+          if [ -d "tests" ]; then
+            pytest tests/ -v --tb=short
+          else
+            python -c "import app; from siem import collector, detector, storage; print('Imports OK')"
+          fi
+
+      - name: Build Docker (verifica Dockerfile valido)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./k8s/Dockerfile
+          push: false
+          tags: homelab-siem:pr-${{ github.event.number }}

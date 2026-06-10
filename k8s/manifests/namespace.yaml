@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: homelab-siem
+  labels:
+    app.kubernetes.io/name: homelab-siem
+    app.kubernetes.io/managed-by: kubectl
