@@ -422,6 +422,7 @@ Homelab_SIEM/
 │   ├── GEOIP_GUIDE.md
 │   ├── CALDERA_INTEGRATION.md
 │   ├── RULESTATS_GUIDE.md
+│   ├── SETUP-CICD.md
 │   ├── SURICATA_SETUP.md
 │   └── SYSLOG_GUIDE.md
 └── data/
