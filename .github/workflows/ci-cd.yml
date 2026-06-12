@@ -131,13 +131,13 @@ jobs:
         run: |
           IMAGE_WITH_TAG="${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image-digest }}"
           echo "Aggiornamento a: $IMAGE_WITH_TAG"
-          /usr/bin/kubectl set image deployment/homelab-siem \
+          /usr/bin/kubectl --server=https://127.0.0.1:38799 set image deployment/homelab-siem \
             siem="$IMAGE_WITH_TAG" \
             -n ${{ env.NAMESPACE }}
 
       - name: Attendi rollout
         run: |
-          /usr/bin/kubectl rollout status deployment/homelab-siem \
+          /usr/bin/kubectl --server=https://127.0.0.1:38799 rollout status deployment/homelab-siem \
             -n ${{ env.NAMESPACE }} \
             --timeout=180s
 
@@ -145,14 +145,14 @@ jobs:
         if: failure()
         run: |
           echo "Deploy fallito, rollback in corso..."
-          /usr/bin/kubectl rollout undo deployment/homelab-siem -n ${{ env.NAMESPACE }}
-          /usr/bin/kubectl rollout status deployment/homelab-siem -n ${{ env.NAMESPACE }} --timeout=60s
+          /usr/bin/kubectl --server=https://127.0.0.1:38799 rollout undo deployment/homelab-siem -n ${{ env.NAMESPACE }}
+          /usr/bin/kubectl --server=https://127.0.0.1:38799 rollout status deployment/homelab-siem -n ${{ env.NAMESPACE }} --timeout=60s
 
       - name: Health check post-deploy
         run: |
           sleep 30
-          POD=$(/usr/bin/kubectl get pod -n ${{ env.NAMESPACE }} -l app=homelab-siem -o jsonpath='{.items[0].metadata.name}')
-          /usr/bin/kubectl exec -n ${{ env.NAMESPACE }} "$POD" -- \
+          POD=$(/usr/bin/kubectl --server=https://127.0.0.1:38799 get pod -n ${{ env.NAMESPACE }} -l app=homelab-siem -o jsonpath='{.items[0].metadata.name}')
+          /usr/bin/kubectl --server=https://127.0.0.1:38799 exec -n ${{ env.NAMESPACE }} "$POD" -- \
             python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')" \
             && echo "Health check OK" || (echo "Health check FALLITO" && exit 1)
 
