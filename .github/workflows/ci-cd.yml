@@ -131,13 +131,13 @@ jobs:
         run: |
           IMAGE_WITH_TAG="${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image-digest }}"
           echo "Aggiornamento a: $IMAGE_WITH_TAG"
-          /usr/bin/kubectl --server=https://172.19.0.3:6443 set image deployment/homelab-siem \
-            siem="$IMAGE_WITH_TAG" \
-            -n ${{ env.NAMESPACE }}
+          /usr/local/bin/kubectl set image deployment/homelab-siem \
+           siem="$IMAGE_WITH_TAG" \
+           -n ${{ env.NAMESPACE }}
 
       - name: Attendi rollout
         run: |
-          /usr/bin/kubectl --server=https://172.19.0.3:6443 rollout status deployment/homelab-siem \
+          /usr/local/bin/kubectl rollout status deployment/homelab-siem \
             -n ${{ env.NAMESPACE }} \
             --timeout=180s
 
@@ -145,14 +145,14 @@ jobs:
         if: failure()
         run: |
           echo "Deploy fallito, rollback in corso..."
-          /usr/bin/kubectl --server=https://172.19.0.3:6443 rollout undo deployment/homelab-siem -n ${{ env.NAMESPACE }}
-          /usr/bin/kubectl --server=https://172.19.0.3:6443 rollout status deployment/homelab-siem -n ${{ env.NAMESPACE }} --timeout=60s
+          /usr/local/bin/kubectl rollout undo deployment/homelab-siem -n ${{ env.NAMESPACE }}
+          /usr/local/bin/kubectl rollout status deployment/homelab-siem -n ${{ env.NAMESPACE }} --timeout=60s
 
       - name: Health check post-deploy
         run: |
           sleep 30
-          POD=$(/usr/bin/kubectl --server=https://172.19.0.3:6443 get pod -n ${{ env.NAMESPACE }} -l app=homelab-siem -o jsonpath='{.items[0].metadata.name}')
-          /usr/bin/kubectl --server=https://172.19.0.3:6443 exec -n ${{ env.NAMESPACE }} "$POD" -- \
+          POD=$(/usr/local/bin/kubectl get pod -n ${{ env.NAMESPACE }} -l app=homelab-siem -o jsonpath='{.items[0].metadata.name}')
+          /usr/local/bin/kubectl exec -n ${{ env.NAMESPACE }} "$POD" -- \
             python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')" \
             && echo "Health check OK" || (echo "Health check FALLITO" && exit 1)
 
@@ -161,4 +161,4 @@ jobs:
         run: |
           echo "### Deploy completato" >> $GITHUB_STEP_SUMMARY
           echo "**Namespace:** \`${{ env.NAMESPACE }}\`" >> $GITHUB_STEP_SUMMARY
-          /usr/bin/kubectl get pods -n ${{ env.NAMESPACE }} >> $GITHUB_STEP_SUMMARY
+          /usr/local/bin/kubectl get pods -n ${{ env.NAMESPACE }} >> $GITHUB_STEP_SUMMARY
