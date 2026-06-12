@@ -125,7 +125,6 @@ jobs:
       - name: Configura kubeconfig
         run: |
           mkdir -p ~/.kube
-          cp /home/ubuntu/.kube/config ~/.kube/config
           chmod 600 ~/.kube/config
 
       - name: Rolling update immagine
