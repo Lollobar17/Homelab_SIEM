@@ -122,6 +122,12 @@ jobs:
       - name: Checkout codice
         uses: actions/checkout@v4
 
+      - name: Configura kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          cp /home/ubuntu/.kube/config ~/.kube/config
+          chmod 600 ~/.kube/config
+
       - name: Rolling update immagine
         run: |
           IMAGE_WITH_TAG="${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image-digest }}"
