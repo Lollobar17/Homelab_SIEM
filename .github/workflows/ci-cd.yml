@@ -130,7 +130,7 @@ jobs:
 
       - name: Rolling update immagine
         run: |
-          IMAGE_WITH_TAG="${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image-digest }}"
+          IMAGE_WITH_TAG="${{ env.IMAGE_NAME }}:main"
           echo "Aggiornamento a: $IMAGE_WITH_TAG"
           /usr/local/bin/kubectl set image deployment/homelab-siem \
             siem="$IMAGE_WITH_TAG" \
