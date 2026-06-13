@@ -18,6 +18,7 @@ COPY --from=builder /opt/venv /opt/venv
 COPY app.py simulate_logs.py requirements.txt ./
 COPY siem/ ./siem/
 COPY azure_siem/ ./azure_siem/
+COPY monitoring/ ./monitoring/
 COPY templates/ ./templates/
 
 RUN mkdir -p /app/data && chown -R siem:siem /app
