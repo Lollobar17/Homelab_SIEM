@@ -3,3 +3,4 @@ requests>=2.31
 gunicorn>=21.0
 azure-storage-blob>=12.0
 msal>=1.0
+prometheus-client>=0.20.0

@@ -92,6 +92,11 @@ if CONFIG.get("discord_webhook"):
 # ──────────────────────────────────────────────
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
+
+# Prometheus metrics
+from monitoring.siem_metrics import setup_metrics, metrics_bp
+setup_metrics(app)
+app.register_blueprint(metrics_bp)
 # Reject oversized ingress payloads early — protects constrained hosts.
 app.config["MAX_CONTENT_LENGTH"] = 512 * 1024  # 512 KB
 
