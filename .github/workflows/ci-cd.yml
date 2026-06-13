@@ -124,9 +124,7 @@ jobs:
 
       - name: Configura kubeconfig
         run: |
-          K3D_IP=$(docker inspect k3d-homelab-siem-server-0 --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
-          echo "K3D IP: $K3D_IP"
-          sed "s/127.0.0.1:6443/${K3D_IP}:6443/g" /home/ubuntu/.kube/config > /tmp/kubeconfig-runner
+          /snap/bin/k3d kubeconfig get homelab-siem > /tmp/kubeconfig-runner
           chmod 600 /tmp/kubeconfig-runner
           echo "KUBECONFIG=/tmp/kubeconfig-runner" >> $GITHUB_ENV
 
