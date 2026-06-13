@@ -124,10 +124,11 @@ jobs:
 
       - name: Configura kubeconfig
         run: |
-          mkdir -p ~/.kube
           K3D_IP=$(docker inspect k3d-homelab-siem-server-0 --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
-          sed "s/127.0.0.1:6443/${K3D_IP}:6443/g" /home/ubuntu/.kube/config > ~/.kube/config
-          chmod 600 ~/.kube/config
+          echo "K3D IP: $K3D_IP"
+          sed "s/127.0.0.1:6443/${K3D_IP}:6443/g" /home/ubuntu/.kube/config > /tmp/kubeconfig-runner
+          chmod 600 /tmp/kubeconfig-runner
+          echo "KUBECONFIG=/tmp/kubeconfig-runner" >> $GITHUB_ENV
 
       - name: Rolling update immagine
         run: |
