@@ -125,6 +125,8 @@ jobs:
       - name: Configura kubeconfig
         run: |
           mkdir -p ~/.kube
+          K3D_IP=$(docker inspect k3d-homelab-siem-server-0 --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+          sed "s/127.0.0.1:6443/${K3D_IP}:6443/g" /home/ubuntu/.kube/config > ~/.kube/config
           chmod 600 ~/.kube/config
 
       - name: Rolling update immagine
@@ -132,8 +134,8 @@ jobs:
           IMAGE_WITH_TAG="${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image-digest }}"
           echo "Aggiornamento a: $IMAGE_WITH_TAG"
           /usr/local/bin/kubectl set image deployment/homelab-siem \
-           siem="$IMAGE_WITH_TAG" \
-           -n ${{ env.NAMESPACE }}
+            siem="$IMAGE_WITH_TAG" \
+            -n ${{ env.NAMESPACE }}
 
       - name: Attendi rollout
         run: |
