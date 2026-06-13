@@ -124,7 +124,7 @@ jobs:
 
       - name: Configura kubeconfig
         run: |
-          /snap/bin/k3d kubeconfig get homelab-siem > /tmp/kubeconfig-runner
+          /usr/local/bin/k3d kubeconfig get homelab-siem > /tmp/kubeconfig-runner
           chmod 600 /tmp/kubeconfig-runner
           echo "KUBECONFIG=/tmp/kubeconfig-runner" >> $GITHUB_ENV
 
