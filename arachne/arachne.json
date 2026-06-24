@@ -1,0 +1,22 @@
+{
+  "node_role": "implant",
+  "beacon_interval": 30000000000,
+  "beacon_jitter": 0.3,
+  "beacon_url": "http://127.0.0.1:8888/beacon",
+  "peer_list": [],
+  "listen_port": 4444,
+  "max_peers": 5,
+  "exfil_enabled": true,
+  "exfil_target": "192.168.1.100",
+  "exfil_chunk_kb": 4,
+  "exfil_interval": 60000000000,
+  "lateral_enabled": true,
+  "lateral_targets": ["10.0.0.0/24", "192.168.1.0/24"],
+  "lateral_interval": 120000000000,
+  "use_https": false,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+  "mimic_domain": "updates.microsoft.com",
+  "log_file": "/tmp/arachne-events.jsonl",
+  "log_level": "info",
+  "siem_ingest": "http://localhost:5000/api/v1/ingress"
+}

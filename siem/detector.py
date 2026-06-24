@@ -18,6 +18,8 @@ from azure_siem.azure_activity_rules import AZURE_ACTIVITY_RULES
 from azure_siem.sentinel.sentinel_rules import SENTINEL_RULES
 from siem.caldera_rules import CALDERA_RULES
 from siem.caldera_parser import is_caldera_event
+from siem.arachne_rules import ARACHNE_RULES
+from siem.falco_rules import FALCO_RULES
 
 logger = logging.getLogger("siem.detector")
 
@@ -404,6 +406,8 @@ RULES = [
 RULES = RULES + AZURE_RULES
 RULES = RULES + AZURE_ACTIVITY_RULES
 RULES = RULES + SENTINEL_RULES
+RULES.extend(ARACHNE_RULES)
+RULES.extend(FALCO_RULES)
 
 # ──────────────────────────────────────────────
 #  Public API

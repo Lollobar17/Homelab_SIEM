@@ -133,6 +133,24 @@ def store_event(event: dict) -> int:
         )
         event_id = cur.lastrowid
 
+        try:
+            from monitoring.siem_metrics import record_event
+            record_event(
+            category=event.get('category', 'unknown'),
+            source=event.get('source', 'unknown')
+            )
+        except Exception:
+            pass 
+
+        try:
+            from monitoring.siem_metrics import record_alert
+            record_alert(
+            rule_id=alert.get('rule_id', 'unknown'),
+            severity=alert.get('severity', 'unknown')
+            )
+        except Exception:
+            pass       
+
         for a in alerts:
             conn.execute(
                 """INSERT INTO alerts
