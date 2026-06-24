@@ -442,6 +442,11 @@ def analyze_event(event: dict) -> list[dict]:
                         "timestamp":   datetime.now(timezone.utc).isoformat(),
                     }
                     alerts.append(alert)
+                    try:
+                        from monitoring.siem_metrics import record_alert
+                        record_alert(rule_id=alert["rule"], severity=alert["severity"])
+                    except Exception:
+                        pass
                     _discord_notify_if_configured(alert)
         except Exception as exc:
             logger.debug(f"Rule {rule['id']} evaluation error: {exc}")
