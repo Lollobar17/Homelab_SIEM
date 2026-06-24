@@ -1,98 +1,111 @@
-# ──────────────────────────────────────────────────────────────────────────────
-#  monitoring/siem_metrics.py
-#  Prometheus metrics module for HomeLab SIEM
-#
-#  Add to requirements.txt:  prometheus-client>=0.20.0
-#
-#  Add to app.py:
-#    from monitoring.siem_metrics import setup_metrics, metrics_bp
-#    setup_metrics(app)
-#    app.register_blueprint(metrics_bp)
-# ──────────────────────────────────────────────────────────────────────────────
-
+import time
+import logging
 from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
-from flask import Blueprint, Response
+from flask import Blueprint, Response, request, g
 
-# ── Metrics definitions ───────────────────────────────────────────────────────
+logger = logging.getLogger(__name__)
 
-# Events ingested total
 events_total = Counter(
     'siem_events_total',
     'Total number of events ingested',
     ['category', 'source']
 )
 
-# Alerts generated total
 alerts_total = Counter(
     'siem_alerts_total',
     'Total number of alerts generated',
     ['rule_id', 'severity']
 )
 
-# Active alerts currently in DB
 active_alerts = Gauge(
     'siem_active_alerts',
-    'Number of active alerts (status=New)',
+    'Number of active alerts by severity',
     ['severity']
 )
 
-# Detection rules loaded
 rules_loaded = Gauge(
     'siem_rules_loaded_total',
     'Total number of detection rules loaded'
 )
 
-# HTTP request duration
 http_request_duration = Histogram(
     'siem_http_request_duration_seconds',
     'HTTP request duration in seconds',
     ['method', 'endpoint', 'status_code'],
-    buckets=[0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0]
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
 )
 
-# API ingest rate
 ingest_requests = Counter(
     'siem_ingest_requests_total',
     'Total number of ingest API requests',
     ['status']
 )
 
-# ── Blueprint for /metrics endpoint ──────────────────────────────────────────
+def record_event(category: str = 'unknown', source: str = 'unknown'):
+    try:
+        events_total.labels(
+            category=str(category) if category else 'unknown',
+            source=str(source) if source else 'unknown'
+        ).inc()
+    except Exception as e:
+        logger.debug(f"Metrics record_event error: {e}")
+
+def record_alert(rule_id: str = 'unknown', severity: str = 'unknown'):
+    try:
+        alerts_total.labels(
+            rule_id=str(rule_id) if rule_id else 'unknown',
+            severity=str(severity) if severity else 'unknown'
+        ).inc()
+    except Exception as e:
+        logger.debug(f"Metrics record_alert error: {e}")
+
+def record_ingest(status: str = 'success'):
+    try:
+        ingest_requests.labels(status=status).inc()
+    except Exception as e:
+        logger.debug(f"Metrics record_ingest error: {e}")
+
+def refresh_active_alerts():
+    try:
+        from siem.storage import get_recent_alerts
+        alerts = get_recent_alerts(limit=1000)
+        severity_counts = {}
+        for alert in alerts:
+            sev = alert.get('severity', 'unknown')
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+        for severity, count in severity_counts.items():
+            active_alerts.labels(severity=severity).set(count)
+    except Exception as e:
+        logger.debug(f"Metrics refresh_active_alerts error: {e}")
 
 metrics_bp = Blueprint('metrics', __name__)
 
 @metrics_bp.route('/metrics')
 def metrics():
+    refresh_active_alerts()
     return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
-# ── Setup function ────────────────────────────────────────────────────────────
-
 def setup_metrics(app):
-    """Initialize metrics with current state from DB."""
-    from siem import storage
     from siem.detector import RULES
-
-    # Set rules loaded gauge
     rules_loaded.set(len(RULES))
 
-    # Middleware to track HTTP request duration
-    import time
-    from flask import request, g
-
     @app.before_request
-    def before_request():
+    def _before():
         g.start_time = time.time()
 
     @app.after_request
-    def after_request(response):
+    def _after(response):
         if hasattr(g, 'start_time'):
             duration = time.time() - g.start_time
             endpoint = request.endpoint or 'unknown'
-            http_request_duration.labels(
-                method=request.method,
-                endpoint=endpoint,
-                status_code=response.status_code
-            ).observe(duration)
+            try:
+                http_request_duration.labels(
+                    method=request.method,
+                    endpoint=endpoint,
+                    status_code=str(response.status_code)
+                ).observe(duration)
+            except Exception:
+                pass
         return response
 
-    app.logger.info(f"Prometheus metrics enabled — {len(RULES)} rules loaded")
+    logger.info(f"Prometheus metrics enabled — {len(RULES)} rules loaded, /metrics active")

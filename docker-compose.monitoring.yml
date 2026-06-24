@@ -11,7 +11,6 @@
 #    Grafana:    http://localhost:3000  (admin / admin123)
 # ──────────────────────────────────────────────────────────────────────────────
 
-version: "3.9"
 
 networks:
   monitoring:
