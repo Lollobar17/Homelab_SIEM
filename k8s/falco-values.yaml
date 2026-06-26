@@ -1,0 +1,72 @@
+# falco-values.yaml
+# Helm values for Falco deployment on Oracle Cloud K8s cluster
+#
+# Install with:
+#   helm repo add falcosecurity https://falcosecurity.github.io/charts
+#   helm repo update
+#   helm install falco falcosecurity/falco \
+#     --namespace falco --create-namespace \
+#     --values k8s/falco-values.yaml
+
+# Use eBPF driver (required on ARM/Oracle Cloud)
+driver:
+  kind: ebpf
+
+# Enable JSON output
+falco:
+  json_output: true
+  json_include_output_property: true
+  log_level: info
+
+  # Send alerts to falco_collector.py via HTTP webhook
+  http_output:
+    enabled: true
+    url: "http://falco-collector.homelab-siem.svc.cluster.local:2801/alert"
+
+  # Also write to file (backup)
+  file_output:
+    enabled: true
+    keep_alive: false
+    filename: /var/log/falco/falco.json
+
+# Resource limits (conservative for Oracle Free Tier)
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Tolerations to run on all nodes
+tolerations:
+  - effect: NoSchedule
+    operator: Exists
+
+# Custom rules for ArachneC2 detection
+customRules:
+  arachne-c2-rules.yaml: |-
+    - rule: ArachneC2 Beacon Pattern
+      desc: Detect HTTP beaconing to non-standard hosts with jitter pattern
+      condition: >
+        outbound and
+        fd.sport >= 4000 and fd.sport <= 5000 and
+        not fd.sip in (rfc_1918_addresses)
+      output: >
+        ArachneC2 beacon pattern detected
+        (connection=%fd.name proc=%proc.name container=%container.name)
+      priority: HIGH
+      tags: [network, c2, arachne]
+
+    - rule: ArachneC2 Lateral Movement
+      desc: Detect internal network scanning matching ArachneC2 pattern
+      condition: >
+        outbound and
+        fd.sip in (rfc_1918_addresses) and
+        fd.sport in (4444, 4445, 8888) and
+        container.id != host
+      output: >
+        ArachneC2 lateral movement detected
+        (connection=%fd.name proc=%proc.name pod=%k8s.pod.name)
+      priority: CRITICAL
+      tags: [network, lateral_movement, arachne]
