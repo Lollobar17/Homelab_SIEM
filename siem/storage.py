@@ -142,15 +142,6 @@ def store_event(event: dict) -> int:
         except Exception:
             pass 
 
-        try:
-            from monitoring.siem_metrics import record_alert
-            record_alert(
-            rule_id=alert.get('rule_id', 'unknown'),
-            severity=alert.get('severity', 'unknown')
-            )
-        except Exception:
-            pass       
-
         for a in alerts:
             conn.execute(
                 """INSERT INTO alerts

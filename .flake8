@@ -1,0 +1,9 @@
+[flake8]
+exclude =
+    .venv,
+    venv,
+    .git,
+    arachne/,
+    __pycache__,
+    *.egg-info
+max-line-length = 127
