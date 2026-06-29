@@ -2,8 +2,8 @@ name: Oracle VM Provisioner
 
 on:
   schedule:
-    - cron: '0 * * * *'  # ogni ora
-  workflow_dispatch:       # avvio manuale
+    - cron: '0 * * * *'
+  workflow_dispatch:
 
 jobs:
   provision:
@@ -12,8 +12,7 @@ jobs:
 
     steps:
       - name: Install OCI CLI
-        run: |
-          pip install oci-cli --quiet
+        run: pip install oci-cli --quiet
 
       - name: Configure OCI CLI
         run: |
@@ -22,12 +21,19 @@ jobs:
           echo "user=${{ secrets.OCI_USER_OCID }}" >> ~/.oci/config
           echo "tenancy=${{ secrets.OCI_TENANCY_OCID }}" >> ~/.oci/config
           echo "region=eu-frankfurt-1" >> ~/.oci/config
-          echo "key_file=~/.oci/oci_api_key.pem" >> ~/.oci/config
+          echo "key_file=/home/runner/.oci/oci_api_key.pem" >> ~/.oci/config
           echo "${{ secrets.OCI_API_KEY }}" > ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/config
+        env:
+          SUPPRESS_LABEL_WARNING: "True"
+          OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
 
       - name: Try all availability domains
         id: provision
+        env:
+          OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
+          SUPPRESS_LABEL_WARNING: "True"
         run: |
           IMAGE_ID="ocid1.image.oc1.eu-frankfurt-1.aaaaaaaab2msc7qxe4auh5mhnfqx746egseojithkvoe7fnqqzau67u7qhba"
           SUBNET_ID="ocid1.subnet.oc1.eu-frankfurt-1.aaaaaaaalwgnaesh2owkp4e7a7awhmcjdekw6jxzc6s3kkowvibpumynfx5a"
@@ -51,18 +57,19 @@ jobs:
 
             if echo "$RESULT" | grep -q '"id"'; then
               echo "VM CREATED in $AD!"
-              PUBLIC_IP=$(echo "$RESULT" | python3 -c "
+              INSTANCE_ID=$(echo "$RESULT" | python3 -c "
           import sys, json
           data = json.load(sys.stdin)['data']
-          print('Instance ID:', data['id'])
+          print(data['id'])
           " || true)
-              echo "$PUBLIC_IP"
+              echo "Instance ID: $INSTANCE_ID"
               echo "vm_created=true" >> $GITHUB_OUTPUT
+              echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
               exit 0
-            elif echo "$RESULT" | grep -qi "out of capacity\|OutOfCapacity"; then
+            elif echo "$RESULT" | grep -qi "out of capacity\|OutOfCapacity\|InternalError"; then
               echo "$AD: out of capacity"
             else
-              echo "$AD: error — $(echo "$RESULT" | head -5)"
+              echo "$AD: error — $(echo "$RESULT" | grep message | head -1)"
             fi
           done
 
@@ -73,4 +80,5 @@ jobs:
         if: steps.provision.outputs.vm_created == 'true'
         run: |
           echo "### Oracle VM Created!" >> $GITHUB_STEP_SUMMARY
+          echo "**Instance ID:** \`${{ steps.provision.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
           echo "Check Oracle Cloud console for the public IP." >> $GITHUB_STEP_SUMMARY
