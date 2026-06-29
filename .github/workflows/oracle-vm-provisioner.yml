@@ -2,7 +2,7 @@ name: Oracle VM Provisioner
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '14,44 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -29,7 +29,7 @@ jobs:
           SUPPRESS_LABEL_WARNING: "True"
           OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
 
-      - name: Try all availability domains
+      - name: Try all availability domains (Multiple Loops)
         id: provision
         env:
           OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
@@ -39,46 +39,56 @@ jobs:
           SUBNET_ID="ocid1.subnet.oc1.eu-frankfurt-1.aaaaaaaalwgnaesh2owkp4e7a7awhmcjdekw6jxzc6s3kkowvibpumynfx5a"
           COMPARTMENT_ID="${{ secrets.OCI_TENANCY_OCID }}"
           SSH_KEY="${{ secrets.OCI_SSH_PUBLIC_KEY }}"
+          
+          NUM_ATTEMPTS=10
+          SLEEP_TIME=30
 
-          for AD in "lGgl:EU-FRANKFURT-1-AD-1" "lGgl:EU-FRANKFURT-1-AD-2" "lGgl:EU-FRANKFURT-1-AD-3"; do
-            echo "Trying $AD..."
-            RESULT=$(oci compute instance launch \
-              --compartment-id "$COMPARTMENT_ID" \
-              --availability-domain "$AD" \
-              --display-name "homelab-siem" \
-              --shape "VM.Standard.A1.Flex" \
-              --shape-config '{"ocpus": 2, "memoryInGBs": 12}' \
-              --image-id "$IMAGE_ID" \
-              --subnet-id "$SUBNET_ID" \
-              --assign-public-ip true \
-              --ssh-authorized-keys-file <(echo "$SSH_KEY") \
-              --boot-volume-size-in-gbs 50 \
-              2>&1 || true)
+          for i in $(seq 1 $NUM_ATTEMPTS); do
+            echo "=========================================="
+            echo "  INIZIO TENTATIVO REALE DEL RUN: $i di $NUM_ATTEMPTS"
+            echo "=========================================="
+            
+            for AD in "lGgl:EU-FRANKFURT-1-AD-1" "lGgl:EU-FRANKFURT-1-AD-2" "lGgl:EU-FRANKFURT-1-AD-3"; do
+              echo "Provando in $AD..."
+              RESULT=$(oci compute instance launch \
+                --compartment-id "$COMPARTMENT_ID" \
+                --availability-domain "$AD" \
+                --display-name "homelab-siem" \
+                --shape "VM.Standard.A1.Flex" \
+                --shape-config '{"ocpus": 2, "memoryInGBs": 12}' \
+                --image-id "$IMAGE_ID" \
+                --subnet-id "$SUBNET_ID" \
+                --assign-public-ip true \
+                --ssh-authorized-keys-file <(echo "$SSH_KEY") \
+                --boot-volume-size-in-gbs 50 \
+                2>&1 || true)
 
-            if echo "$RESULT" | grep -q '"id"'; then
-              echo "VM CREATED in $AD!"
-              INSTANCE_ID=$(echo "$RESULT" | python3 -c "
-          import sys, json
-          data = json.load(sys.stdin)['data']
-          print(data['id'])
-          " || true)
-              echo "Instance ID: $INSTANCE_ID"
-              echo "vm_created=true" >> $GITHUB_OUTPUT
-              echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
-              exit 0
-            elif echo "$RESULT" | grep -qi "out of capacity\|OutOfCapacity\|InternalError"; then
-              echo "$AD: out of capacity"
-            else
-              echo "$AD: error — $(echo "$RESULT" | grep message | head -1)"
+              if echo "$RESULT" | grep -q '"id"'; then
+                echo "!!! VM CREATA CON SUCCESSO in $AD !!!"
+                INSTANCE_ID=$(echo "$RESULT" | python3 -c "import sys, json; print(json.load(sys.stdin)['data']['id'])" || true)
+                echo "Instance ID: $INSTANCE_ID"
+                echo "vm_created=true" >> $GITHUB_OUTPUT
+                echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+                exit 0
+              elif echo "$RESULT" | grep -qi "out of capacity\|OutOfCapacity\|InternalError"; then
+                echo "$AD: Out of capacity."
+              else
+                echo "$AD: Errore imprevisto — $(echo "$RESULT" | grep message | head -1)"
+              fi
+            done
+            
+            if [ $i -lt $NUM_ATTEMPTS ]; then
+              echo "Nessun AD disponibile nel tentativo $i. Attendo $SLEEP_TIME secondi..."
+              sleep $SLEEP_TIME
             fi
           done
 
           echo "vm_created=false" >> $GITHUB_OUTPUT
-          echo "All ADs exhausted this run."
+          echo "Tutti i $NUM_ATTEMPTS tentativi sono falliti per mancanza di risorse."
 
       - name: Notify success
         if: steps.provision.outputs.vm_created == 'true'
         run: |
           echo "### Oracle VM Created!" >> $GITHUB_STEP_SUMMARY
           echo "**Instance ID:** \`${{ steps.provision.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "Check Oracle Cloud console for the public IP." >> $GITHUB_STEP_SUMMARY
+          echo "Controlla la console Oracle Cloud per l'IP pubblico." >> $GITHUB_STEP_SUMMARY
