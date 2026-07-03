@@ -46,6 +46,14 @@ jobs:
           SLEEP_TIME=30
           ADS=("lGgl:EU-FRANKFURT-1-AD-1" "lGgl:EU-FRANKFURT-1-AD-2" "lGgl:EU-FRANKFURT-1-AD-3")
 
+          # Write the SSH key to a real temp file instead of using process substitution.
+          # Process substitution (<(...)) can fail on some CI runners because the OCI CLI
+          # (Click-based) checks file existence and reads it in separate steps, which
+          # doesn't always work with an ephemeral /dev/fd/N handle.
+          SSH_KEY_FILE=$(mktemp)
+          printf '%s\n' "$SSH_KEY" > "$SSH_KEY_FILE"
+          echo "SSH key file written, $(wc -l < "$SSH_KEY_FILE") line(s), $(wc -c < "$SSH_KEY_FILE") bytes."
+
           # ---- Helper: launch instance with a given shape, return instance id or empty ----
           launch_instance () {
             local SHAPE="$1"
@@ -59,7 +67,7 @@ jobs:
               --image-id "$IMAGE_ID" \
               --subnet-id "$SUBNET_ID" \
               --assign-public-ip true \
-              --ssh-authorized-keys-file <(echo "$SSH_KEY") \
+              --ssh-authorized-keys-file "$SSH_KEY_FILE" \
               --boot-volume-size-in-gbs 50 \
               2>&1 || true
           }
@@ -85,7 +93,8 @@ jobs:
               elif echo "$RESULT" | grep -qi "out of capacity\|OutOfCapacity\|InternalError"; then
                 echo "[A1.Flex] $AD: Out of capacity."
               else
-                echo "[A1.Flex] $AD: Errore imprevisto — $(echo "$RESULT" | grep message | head -1)"
+                echo "[A1.Flex] $AD: Errore imprevisto. Output completo:"
+                echo "$RESULT"
               fi
             done
 
@@ -123,7 +132,8 @@ jobs:
               elif echo "$RESULT" | grep -qi "out of capacity\|OutOfCapacity\|InternalError"; then
                 echo "[A2.Flex fallback] $AD: Out of capacity."
               else
-                echo "[A2.Flex fallback] $AD: Errore imprevisto — $(echo "$RESULT" | grep message | head -1)"
+                echo "[A2.Flex fallback] $AD: Errore imprevisto. Output completo:"
+                echo "$RESULT"
               fi
             done
 
@@ -136,6 +146,8 @@ jobs:
               sleep $SLEEP_TIME
             fi
           done
+
+          rm -f "$SSH_KEY_FILE"
 
           if [ -n "$INSTANCE_ID" ]; then
             echo "Instance ID: $INSTANCE_ID"
