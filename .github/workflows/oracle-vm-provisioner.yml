@@ -29,7 +29,7 @@ jobs:
           SUPPRESS_LABEL_WARNING: "True"
           OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
 
-      - name: Try all availability domains (Multiple Loops)
+      - name: Try all availability domains (A1 direct, then A2 fallback + downgrade)
         id: provision
         env:
           OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
@@ -39,56 +39,119 @@ jobs:
           SUBNET_ID="ocid1.subnet.oc1.eu-frankfurt-1.aaaaaaaalwgnaesh2owkp4e7a7awhmcjdekw6jxzc6s3kkowvibpumynfx5a"
           COMPARTMENT_ID="${{ secrets.OCI_TENANCY_OCID }}"
           SSH_KEY="${{ secrets.OCI_SSH_PUBLIC_KEY }}"
-          
+
+          TARGET_OCPUS=2
+          TARGET_MEMORY_GB=12
           NUM_ATTEMPTS=10
           SLEEP_TIME=30
+          ADS=("lGgl:EU-FRANKFURT-1-AD-1" "lGgl:EU-FRANKFURT-1-AD-2" "lGgl:EU-FRANKFURT-1-AD-3")
+
+          # ---- Helper: launch instance with a given shape, return instance id or empty ----
+          launch_instance () {
+            local SHAPE="$1"
+            local AD="$2"
+            oci compute instance launch \
+              --compartment-id "$COMPARTMENT_ID" \
+              --availability-domain "$AD" \
+              --display-name "homelab-siem" \
+              --shape "$SHAPE" \
+              --shape-config "{\"ocpus\": $TARGET_OCPUS, \"memoryInGBs\": $TARGET_MEMORY_GB}" \
+              --image-id "$IMAGE_ID" \
+              --subnet-id "$SUBNET_ID" \
+              --assign-public-ip true \
+              --ssh-authorized-keys-file <(echo "$SSH_KEY") \
+              --boot-volume-size-in-gbs 50 \
+              2>&1 || true
+          }
+
+          INSTANCE_ID=""
+          FINAL_SHAPE=""
 
           for i in $(seq 1 $NUM_ATTEMPTS); do
             echo "=========================================="
-            echo "  INIZIO TENTATIVO REALE DEL RUN: $i di $NUM_ATTEMPTS"
+            echo "  TENTATIVO $i di $NUM_ATTEMPTS"
             echo "=========================================="
-            
-            for AD in "lGgl:EU-FRANKFURT-1-AD-1" "lGgl:EU-FRANKFURT-1-AD-2" "lGgl:EU-FRANKFURT-1-AD-3"; do
-              echo "Provando in $AD..."
-              RESULT=$(oci compute instance launch \
-                --compartment-id "$COMPARTMENT_ID" \
-                --availability-domain "$AD" \
-                --display-name "homelab-siem" \
-                --shape "VM.Standard.A1.Flex" \
-                --shape-config '{"ocpus": 2, "memoryInGBs": 12}' \
-                --image-id "$IMAGE_ID" \
-                --subnet-id "$SUBNET_ID" \
-                --assign-public-ip true \
-                --ssh-authorized-keys-file <(echo "$SSH_KEY") \
-                --boot-volume-size-in-gbs 50 \
-                2>&1 || true)
+
+            # --- Fase 1: prova A1.Flex diretto su tutti gli AD ---
+            for AD in "${ADS[@]}"; do
+              echo "[A1.Flex] Provando in $AD..."
+              RESULT=$(launch_instance "VM.Standard.A1.Flex" "$AD")
 
               if echo "$RESULT" | grep -q '"id"'; then
-                echo "!!! VM CREATA CON SUCCESSO in $AD !!!"
+                echo "!!! VM A1.Flex CREATA CON SUCCESSO in $AD !!!"
                 INSTANCE_ID=$(echo "$RESULT" | python3 -c "import sys, json; print(json.load(sys.stdin)['data']['id'])" || true)
-                echo "Instance ID: $INSTANCE_ID"
-                echo "vm_created=true" >> $GITHUB_OUTPUT
-                echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
-                exit 0
+                FINAL_SHAPE="VM.Standard.A1.Flex"
+                break 2
               elif echo "$RESULT" | grep -qi "out of capacity\|OutOfCapacity\|InternalError"; then
-                echo "$AD: Out of capacity."
+                echo "[A1.Flex] $AD: Out of capacity."
               else
-                echo "$AD: Errore imprevisto — $(echo "$RESULT" | grep message | head -1)"
+                echo "[A1.Flex] $AD: Errore imprevisto — $(echo "$RESULT" | grep message | head -1)"
               fi
             done
-            
+
+            # --- Fase 2: fallback su A2.Flex, poi downgrade a A1.Flex ---
+            for AD in "${ADS[@]}"; do
+              echo "[A2.Flex fallback] Provando in $AD..."
+              RESULT=$(launch_instance "VM.Standard.A2.Flex" "$AD")
+
+              if echo "$RESULT" | grep -q '"id"'; then
+                A2_ID=$(echo "$RESULT" | python3 -c "import sys, json; print(json.load(sys.stdin)['data']['id'])" || true)
+                echo "!!! VM A2.Flex CREATA in $AD (OCID: $A2_ID). Avvio downgrade a A1.Flex... !!!"
+
+                oci compute instance action --instance-id "$A2_ID" --action START --wait-for-state RUNNING || true
+
+                UPDATE_RESULT=$(oci compute instance update \
+                  --instance-id "$A2_ID" \
+                  --shape "VM.Standard.A1.Flex" \
+                  --shape-config "{\"ocpus\": $TARGET_OCPUS, \"memoryInGBs\": $TARGET_MEMORY_GB}" \
+                  --wait-for-state RUNNING \
+                  --force \
+                  2>&1 || true)
+
+                if echo "$UPDATE_RESULT" | grep -qi '"shape": "VM.Standard.A1.Flex"'; then
+                  echo "!!! DOWNGRADE A A1.Flex RIUSCITO !!!"
+                  INSTANCE_ID="$A2_ID"
+                  FINAL_SHAPE="VM.Standard.A1.Flex (via A2.Flex)"
+                else
+                  echo "ATTENZIONE: istanza creata come A2.Flex ma il downgrade e' fallito."
+                  echo "$UPDATE_RESULT" | grep message | head -1
+                  echo "L'istanza resta A2.Flex (a pagamento, consuma credito Free Trial) - verifica manualmente in console."
+                  INSTANCE_ID="$A2_ID"
+                  FINAL_SHAPE="VM.Standard.A2.Flex (downgrade fallito, richiede intervento manuale)"
+                fi
+                break 2
+              elif echo "$RESULT" | grep -qi "out of capacity\|OutOfCapacity\|InternalError"; then
+                echo "[A2.Flex fallback] $AD: Out of capacity."
+              else
+                echo "[A2.Flex fallback] $AD: Errore imprevisto — $(echo "$RESULT" | grep message | head -1)"
+              fi
+            done
+
+            if [ -n "$INSTANCE_ID" ]; then
+              break
+            fi
+
             if [ $i -lt $NUM_ATTEMPTS ]; then
-              echo "Nessun AD disponibile nel tentativo $i. Attendo $SLEEP_TIME secondi..."
+              echo "Nessun AD disponibile (ne' A1 ne' A2) nel tentativo $i. Attendo $SLEEP_TIME secondi..."
               sleep $SLEEP_TIME
             fi
           done
 
-          echo "vm_created=false" >> $GITHUB_OUTPUT
-          echo "Tutti i $NUM_ATTEMPTS tentativi sono falliti per mancanza di risorse."
+          if [ -n "$INSTANCE_ID" ]; then
+            echo "Instance ID: $INSTANCE_ID"
+            echo "Shape finale: $FINAL_SHAPE"
+            echo "vm_created=true" >> $GITHUB_OUTPUT
+            echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+            echo "final_shape=$FINAL_SHAPE" >> $GITHUB_OUTPUT
+          else
+            echo "vm_created=false" >> $GITHUB_OUTPUT
+            echo "Tutti i $NUM_ATTEMPTS tentativi sono falliti (A1 e A2) per mancanza di risorse."
+          fi
 
       - name: Notify success
         if: steps.provision.outputs.vm_created == 'true'
         run: |
           echo "### Oracle VM Created!" >> $GITHUB_STEP_SUMMARY
           echo "**Instance ID:** \`${{ steps.provision.outputs.instance_id }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "Controlla la console Oracle Cloud per l'IP pubblico." >> $GITHUB_STEP_SUMMARY
+          echo "**Shape finale:** \`${{ steps.provision.outputs.final_shape }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "Controlla la console Oracle Cloud per l'IP pubblico e per confermare che lo shape sia effettivamente A1.Flex (Always Free)." >> $GITHUB_STEP_SUMMARY
