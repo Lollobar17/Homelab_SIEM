@@ -19,6 +19,7 @@ jobs:
           mkdir -p ~/.oci
           echo "[DEFAULT]" > ~/.oci/config
           echo "user=${{ secrets.OCI_USER_OCID }}" >> ~/.oci/config
+          echo "fingerprint=${{ secrets.OCI_FINGERPRINT }}" >> ~/.oci/config
           echo "tenancy=${{ secrets.OCI_TENANCY_OCID }}" >> ~/.oci/config
           echo "region=eu-frankfurt-1" >> ~/.oci/config
           echo "key_file=/home/runner/.oci/oci_api_key.pem" >> ~/.oci/config
