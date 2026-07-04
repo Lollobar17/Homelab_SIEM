@@ -41,6 +41,26 @@ jobs:
           COMPARTMENT_ID="${{ secrets.OCI_TENANCY_OCID }}"
           SSH_KEY="${{ secrets.OCI_SSH_PUBLIC_KEY }}"
 
+          # ---- Idempotency check: skip entirely if an instance already exists ----
+          # Prevents the scheduled run (every 30 min) from creating duplicate instances
+          # once provisioning has already succeeded.
+          EXISTING=$(oci compute instance list \
+            --compartment-id "$COMPARTMENT_ID" \
+            --display-name "homelab-siem" \
+            --lifecycle-state RUNNING \
+            --query 'data[0].id' \
+            --raw-output 2>/dev/null || true)
+
+          if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
+            echo "Istanza homelab-siem gia' esistente e RUNNING (OCID: $EXISTING). Nessuna azione necessaria."
+            echo "vm_created=true" >> $GITHUB_OUTPUT
+            echo "instance_id=$EXISTING" >> $GITHUB_OUTPUT
+            echo "final_shape=already-exists" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Nessuna istanza homelab-siem attiva trovata. Procedo con il provisioning..."
+
           TARGET_OCPUS=2
           TARGET_MEMORY_GB=12
           NUM_ATTEMPTS=10
