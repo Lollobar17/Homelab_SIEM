@@ -17,12 +17,10 @@ falco:
   json_output: true
   json_include_output_property: true
   log_level: info
-
   # Send alerts to falco_collector.py via HTTP webhook
   http_output:
     enabled: true
     url: "http://falco-collector.homelab-siem.svc.cluster.local:2801/alert"
-
   # Also write to file (backup)
   file_output:
     enabled: true
@@ -47,22 +45,21 @@ tolerations:
 customRules:
   arachne-c2-rules.yaml: |-
     - rule: ArachneC2 Beacon Pattern
-      desc: Detect HTTP beaconing to non-standard hosts with jitter pattern
+      desc: Detect HTTP beaconing to non-standard destination ports with jitter pattern
       condition: >
         outbound and
         fd.sport >= 4000 and fd.sport <= 5000 and
-        not fd.sip in (rfc_1918_addresses)
+        not fd.snet in (rfc_1918_addresses)
       output: >
         ArachneC2 beacon pattern detected
         (connection=%fd.name proc=%proc.name container=%container.name)
-      priority: HIGH
+      priority: WARNING
       tags: [network, c2, arachne]
-
     - rule: ArachneC2 Lateral Movement
       desc: Detect internal network scanning matching ArachneC2 pattern
       condition: >
         outbound and
-        fd.sip in (rfc_1918_addresses) and
+        fd.snet in (rfc_1918_addresses) and
         fd.sport in (4444, 4445, 8888) and
         container.id != host
       output: >
