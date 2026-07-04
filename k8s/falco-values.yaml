@@ -8,9 +8,9 @@
 #     --namespace falco --create-namespace \
 #     --values k8s/falco-values.yaml
 
-# Use eBPF driver (required on ARM/Oracle Cloud)
+# Use modern eBPF probe (required on ARM/Oracle Cloud; legacy ebpf driver removed in recent chart versions)
 driver:
-  kind: ebpf
+  kind: modern_ebpf
 
 # Enable JSON output
 falco:
