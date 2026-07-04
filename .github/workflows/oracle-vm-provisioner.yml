@@ -111,23 +111,42 @@ jobs:
                 A2_ID=$(echo "$RESULT" | python3 -c "import sys, json; print(json.load(sys.stdin)['data']['id'])" || true)
                 echo "!!! VM A2.Flex CREATA in $AD (OCID: $A2_ID). Avvio downgrade a A1.Flex... !!!"
 
-                oci compute instance action --instance-id "$A2_ID" --action START --wait-for-state RUNNING || true
+                # Retry the shape downgrade in case the instance is still finalizing
+                # background setup (agent config, etc.) right after launch, which can
+                # cause a transient 409 Conflict ("currently being modified").
+                DOWNGRADE_ATTEMPTS=5
+                DOWNGRADE_SLEEP=20
+                DOWNGRADE_OK=false
 
-                UPDATE_RESULT=$(oci compute instance update \
-                  --instance-id "$A2_ID" \
-                  --shape "VM.Standard.A1.Flex" \
-                  --shape-config "{\"ocpus\": $TARGET_OCPUS, \"memoryInGBs\": $TARGET_MEMORY_GB}" \
-                  --wait-for-state RUNNING \
-                  --force \
-                  2>&1 || true)
+                for d in $(seq 1 $DOWNGRADE_ATTEMPTS); do
+                  echo "  Tentativo downgrade $d/$DOWNGRADE_ATTEMPTS..."
+                  UPDATE_RESULT=$(oci compute instance update \
+                    --instance-id "$A2_ID" \
+                    --shape "VM.Standard.A1.Flex" \
+                    --shape-config "{\"ocpus\": $TARGET_OCPUS, \"memoryInGBs\": $TARGET_MEMORY_GB}" \
+                    --wait-for-state RUNNING \
+                    --force \
+                    2>&1 || true)
 
-                if echo "$UPDATE_RESULT" | grep -qi '"shape": "VM.Standard.A1.Flex"'; then
+                  if echo "$UPDATE_RESULT" | grep -qi '"shape": "VM.Standard.A1.Flex"'; then
+                    DOWNGRADE_OK=true
+                    break
+                  elif echo "$UPDATE_RESULT" | grep -qi "Conflict\|currently being modified"; then
+                    echo "  Istanza ancora in fase di setup, riprovo tra ${DOWNGRADE_SLEEP}s..."
+                    sleep $DOWNGRADE_SLEEP
+                  else
+                    echo "  Errore non recuperabile nel downgrade:"
+                    echo "$UPDATE_RESULT"
+                    break
+                  fi
+                done
+
+                if [ "$DOWNGRADE_OK" = true ]; then
                   echo "!!! DOWNGRADE A A1.Flex RIUSCITO !!!"
                   INSTANCE_ID="$A2_ID"
                   FINAL_SHAPE="VM.Standard.A1.Flex (via A2.Flex)"
                 else
-                  echo "ATTENZIONE: istanza creata come A2.Flex ma il downgrade e' fallito."
-                  echo "$UPDATE_RESULT" | grep message | head -1
+                  echo "ATTENZIONE: istanza creata come A2.Flex ma il downgrade e' fallito dopo $DOWNGRADE_ATTEMPTS tentativi."
                   echo "L'istanza resta A2.Flex (a pagamento, consuma credito Free Trial) - verifica manualmente in console."
                   INSTANCE_ID="$A2_ID"
                   FINAL_SHAPE="VM.Standard.A2.Flex (downgrade fallito, richiede intervento manuale)"
