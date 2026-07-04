@@ -51,8 +51,11 @@ jobs:
           # Process substitution (<(...)) can fail on some CI runners because the OCI CLI
           # (Click-based) checks file existence and reads it in separate steps, which
           # doesn't always work with an ephemeral /dev/fd/N handle.
+          # Also strip any embedded newlines from the secret (a common copy-paste artifact)
+          # so the key ends up as a single clean line, since OCI validates the format strictly.
           SSH_KEY_FILE=$(mktemp)
-          printf '%s\n' "$SSH_KEY" > "$SSH_KEY_FILE"
+          SSH_KEY_ONELINE=$(printf '%s' "$SSH_KEY" | tr -d '\r\n')
+          printf '%s\n' "$SSH_KEY_ONELINE" > "$SSH_KEY_FILE"
           echo "SSH key file written, $(wc -l < "$SSH_KEY_FILE") line(s), $(wc -c < "$SSH_KEY_FILE") bytes."
 
           # ---- Helper: launch instance with a given shape, return instance id or empty ----
