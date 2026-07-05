@@ -151,6 +151,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} bash -s << EOF
             set -e
+            export KUBECONFIG=/home/ubuntu/.kube/config
             cd ~/Homelab_SIEM
             git fetch origin main
             git reset --hard origin/main
@@ -173,6 +174,7 @@ jobs:
         if: failure()
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} bash -s << 'EOF'
+            export KUBECONFIG=/home/ubuntu/.kube/config
             echo "Deploy fallito, rollback in corso..."
             kubectl rollout undo deployment/homelab-siem -n homelab-siem
             kubectl rollout status deployment/homelab-siem -n homelab-siem --timeout=60s
@@ -181,6 +183,7 @@ jobs:
       - name: Health check post-deploy
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} bash -s << 'EOF'
+            export KUBECONFIG=/home/ubuntu/.kube/config
             sleep 15
             POD=$(kubectl get pod -n homelab-siem -l app=homelab-siem -o jsonpath='{.items[0].metadata.name}')
             kubectl exec -n homelab-siem "$POD" -- \
