@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: siem-config
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "homelab-siem.labels" . | nindent 4 }}
+data:
+  config.json: |
+    {
+      "syslog_enabled": {{ .Values.siem.config.syslogEnabled }},
+      "syslog_port": {{ .Values.siem.config.syslogPort }},
+      "watch_files": [],
+      "web_port": {{ .Values.siem.config.port }}
+    }
+  FLASK_ENV: {{ .Values.siem.config.flaskEnv | quote }}
+  SIEM_PORT: {{ .Values.siem.config.port | quote }}
+  SIEM_DB_PATH: {{ .Values.siem.config.dbPath | quote }}
+  PYTHONUNBUFFERED: "1"

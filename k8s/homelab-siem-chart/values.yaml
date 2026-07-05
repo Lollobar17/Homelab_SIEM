@@ -1,0 +1,64 @@
+nameOverride: ""
+fullnameOverride: ""
+
+namespace:
+  create: true
+  name: homelab-siem
+
+siem:
+  image:
+    repository: lollobar17/homelab-siem
+    tag: latest
+    pullPolicy: Always
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  config:
+    flaskEnv: production
+    port: 5000
+    dbPath: /app/data/siem.db
+    syslogEnabled: true
+    syslogPort: 5140
+  service:
+    type: NodePort
+    httpPort: 80
+    httpNodePort: 30500
+    syslogNodePort: 30514
+  storage:
+    size: 1Gi
+    storageClassName: local-path
+  hpa:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    cpuTarget: 70
+    memoryTarget: 80
+  networkPolicy:
+    enabled: true
+
+falcoCollector:
+  enabled: true
+  image:
+    repository: lollobar17/falco-collector
+    tag: latest
+    pullPolicy: Always
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 150m
+      memory: 128Mi
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+    prometheusRelease: kube-prometheus-stack
+    interval: 30s
+  grafanaDashboard:
+    enabled: true

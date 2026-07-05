@@ -1,0 +1,67 @@
+{{- if .Values.falcoCollector.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: falco-collector
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "homelab-siem.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingestion
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: falco-collector
+  template:
+    metadata:
+      labels:
+        app: falco-collector
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: falco-collector
+          image: "{{ .Values.falcoCollector.image.repository }}:{{ .Values.falcoCollector.image.tag }}"
+          imagePullPolicy: {{ .Values.falcoCollector.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 2801
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.falcoCollector.resources | nindent 12 }}
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: falco-collector
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "homelab-siem.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: falco-collector
+  ports:
+    - name: http
+      port: 2801
+      targetPort: http
+      protocol: TCP
+{{- end }}

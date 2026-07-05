@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: siem-service
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "homelab-siem.labels" . | nindent 4 }}
+    app.kubernetes.io/component: service
+spec:
+  type: {{ .Values.siem.service.type }}
+  selector:
+    app: homelab-siem
+  ports:
+    - name: http
+      port: {{ .Values.siem.service.httpPort }}
+      targetPort: http
+      {{- if eq .Values.siem.service.type "NodePort" }}
+      nodePort: {{ .Values.siem.service.httpNodePort }}
+      {{- end }}
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: siem-syslog
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "homelab-siem.labels" . | nindent 4 }}
+    app.kubernetes.io/component: syslog
+spec:
+  type: {{ .Values.siem.service.type }}
+  selector:
+    app: homelab-siem
+  ports:
+    - name: syslog-udp
+      port: {{ .Values.siem.config.syslogPort }}
+      targetPort: syslog-udp
+      {{- if eq .Values.siem.service.type "NodePort" }}
+      nodePort: {{ .Values.siem.service.syslogNodePort }}
+      {{- end }}
+      protocol: UDP

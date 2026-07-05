@@ -1,0 +1,38 @@
+{{- if .Values.siem.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: siem-hpa
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "homelab-siem.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: homelab-siem
+  minReplicas: {{ .Values.siem.hpa.minReplicas }}
+  maxReplicas: {{ .Values.siem.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.siem.hpa.cpuTarget }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.siem.hpa.memoryTarget }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+{{- end }}

@@ -1,0 +1,20 @@
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: homelab-siem
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    release: {{ .Values.monitoring.serviceMonitor.prometheusRelease }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.namespace.name }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "homelab-siem.name" . }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.monitoring.serviceMonitor.interval }}
+{{- end }}
