@@ -1,6 +1,8 @@
 prometheus:
   prometheusSpec:
     retention: 3d
+    serviceMonitorNamespaceSelector: {}
+    serviceMonitorNamespaceSelector: {}
     resources:
       requests:
         cpu: 150m

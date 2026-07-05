@@ -94,7 +94,7 @@ if CONFIG.get("discord_webhook"):
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
 # Prometheus metrics
-from monitoring.siem_metrics import setup_metrics, metrics_bp
+from monitoring.siem_metrics import setup_metrics, metrics_bp, record_event, record_ingest
 setup_metrics(app)
 app.register_blueprint(metrics_bp)
 # Reject oversized ingress payloads early — protects constrained hosts.
@@ -223,6 +223,8 @@ def api_ingest():
 
     alerts = analyze_event(event)
     event["alerts"] = alerts
+    record_event(category=event.get("category", "unknown"), source=event.get("source", source))
+    record_ingest(status="success")
     eid = store_event(event)
     return jsonify({"event_id": eid, "alerts": len(alerts)}), 201
 
@@ -259,12 +261,14 @@ def api_v1_ingress():
             event["alerts"] = alerts
         else:
             event["alerts"] = []
+        record_event(category=event.get("category", "unknown"), source=event.get("source", default_source))
         eid = store_event(event)
         results.append({"index": i, "event_id": eid, "alerts": len(event["alerts"])})
 
     resp = {"ingested": len(results), "results": results}
     if errors:
         resp["validation_errors"] = errors
+    record_ingest(status="success" if not errors else "partial_error")
     return jsonify(resp), 201
 
 
