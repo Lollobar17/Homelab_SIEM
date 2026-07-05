@@ -25,6 +25,25 @@ _RATE_MAX_EVENTS_PER_SOURCE = 500
 _rate_counters = defaultdict(deque)
 _rate_lock = threading.Lock()
 
+# ── Collector health/status registry ──────────────────────────
+_collector_lock = threading.Lock()
+_collector_status = {}  # name -> {type, status, last_event, error, started_at}
+
+
+def _set_status(name: str, **kwargs):
+    with _collector_lock:
+        entry = _collector_status.setdefault(name, {
+            "type": None, "status": "starting",
+            "last_event": None, "error": None, "started_at": None,
+        })
+        entry.update(kwargs)
+
+
+def get_collector_status() -> list[dict]:
+    """Return current status of every registered collector, for the dashboard."""
+    with _collector_lock:
+        return [{"name": name, **data} for name, data in sorted(_collector_status.items())]
+
 
 def _allow_source_event(source: str, now: float) -> bool:
     """Basic per-source rate limiter to avoid ingestion floods."""
@@ -49,6 +68,7 @@ class LogFileTailer(threading.Thread):
         super().__init__(daemon=True)
         self.path = path
         self.source_name = source_name
+        _set_status(self.source_name, type="file", path=path, status="starting")
 
     def run(self):
         logger.info(f"[Tailer] Watching {self.path}")
@@ -58,6 +78,7 @@ class LogFileTailer(threading.Thread):
             logger.debug(f"[Tailer] Waiting for {self.path} to exist...")
             time.sleep(1)
         logger.info(f"[Tailer] File found, starting tail: {self.path}")
+        _set_status(self.source_name, status="running", started_at=datetime.utcnow().isoformat())
         try:
             with open(self.path, "r", encoding="utf-8", errors="replace") as f:
                 f.seek(0, 2)          # jump to end
@@ -65,6 +86,7 @@ class LogFileTailer(threading.Thread):
                     line = f.readline()
                     if line:
                         _process_raw_line(line.strip(), self.source_name)
+                        _set_status(self.source_name, last_event=datetime.utcnow().isoformat())
                     else:
                         try:
                             if f.tell() > os.path.getsize(self.path):
@@ -74,6 +96,7 @@ class LogFileTailer(threading.Thread):
                         time.sleep(0.3)
         except Exception as e:
             logger.error(f"[Tailer] Error on {self.path}: {e}")
+            _set_status(self.source_name, status="error", error=str(e))
 
 
 # ──────────────────────────────────────────────
@@ -89,9 +112,17 @@ class SyslogReceiver(threading.Thread):
         self.port = port
 
     def run(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind((self.host, self.port))
+        name = f"syslog:{self.port}"
+        _set_status(name, type="syslog", status="starting", port=self.port)
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.bind((self.host, self.port))
+        except Exception as e:
+            logger.error(f"[Syslog] Bind error on port {self.port}: {e}")
+            _set_status(name, status="error", error=str(e))
+            return
         logger.info(f"[Syslog] Listening on udp://{self.host}:{self.port}")
+        _set_status(name, status="running", started_at=datetime.utcnow().isoformat())
         while True:
             try:
                 data, addr = sock.recvfrom(8192)
@@ -103,6 +134,7 @@ class SyslogReceiver(threading.Thread):
                     )
                     line = line[:_MAX_LINE_CHARS]
                 _process_raw_line(line, source=f"syslog:{addr[0]}")
+                _set_status(name, last_event=datetime.utcnow().isoformat())
             except Exception as e:
                 logger.error(f"[Syslog] Receive error: {e}")
 

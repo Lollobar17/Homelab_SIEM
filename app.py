@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 
-from siem.collector import start_collectors
+from siem.collector import start_collectors, get_collector_status
 from siem.detector import get_rules, analyze_event
 from siem.ingress import normalize_event, validate_batch
 from siem.storage import (
@@ -273,6 +273,11 @@ def api_v1_ingress():
 
 
 # ── Health ───────────────────────────────────
+
+@app.route("/api/v1/collectors/status")
+def api_v1_collectors_status():
+    return jsonify(get_collector_status())
+
 
 @app.route("/api/health")
 def api_health():

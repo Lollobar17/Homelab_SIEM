@@ -34,6 +34,10 @@ html,body{height:100%;background:var(--bg0);color:var(--text);font-family:var(--
 .live-badge{display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--green);text-transform:uppercase;}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.collector-badge{display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--muted);cursor:default;}
+.collector-badge .cdot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);}
+.collector-badge.warn .cdot{background:var(--yellow);box-shadow:0 0 8px var(--yellow);animation:pulse 1.4s infinite;}
+.collector-badge.err .cdot{background:var(--red);box-shadow:0 0 8px var(--red);animation:pulse 1s infinite;}
 #clock{font-family:var(--font-mono);font-size:12px;color:var(--muted);white-space:nowrap;}
 
 .theme-toggle{background:none;border:1px solid var(--line);cursor:pointer;color:var(--muted);font-size:14px;padding:5px 10px;border-radius:6px;transition:all .15s;}
@@ -204,6 +208,7 @@ td{padding:12px 18px;vertical-align:middle;}
     <div class="topbar-logo">HomeLab <span>SIEM</span></div>
     <div class="topbar-right">
       <div class="live-badge"><div class="dot"></div> Live</div>
+      <div class="collector-badge" id="collectorBadge" title="Loading collector status…"><div class="cdot" id="collectorDot"></div><span id="collectorText">Collectors –</span></div>
       <div id="clock"></div>
       <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">☀</button>
     </div>
@@ -812,9 +817,27 @@ document.addEventListener('keydown',e=>{
 function fmtTime(ts){if(!ts)return'–';try{return new Date(ts).toISOString().replace('T',' ').slice(0,19)+' UTC';}catch{return ts;}}
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
+// ── Collector status ──
+async function loadCollectorStatus(){
+  try{
+    const list=await fetch('/api/v1/collectors/status').then(r=>r.json());
+    const total=list.length;
+    const running=list.filter(c=>c.status==='running').length;
+    const errored=list.filter(c=>c.status==='error').length;
+    const badge=document.getElementById('collectorBadge');
+    badge.classList.remove('warn','err');
+    if(errored>0) badge.classList.add('err');
+    else if(running<total) badge.classList.add('warn');
+    document.getElementById('collectorText').textContent=`Collectors ${running}/${total}`;
+    badge.title=list.map(c=>`${c.name}: ${c.status}${c.error?' — '+c.error:''}`).join('\n')||'No collectors registered';
+  }catch(e){console.error(e);}
+}
+
 // ── Init ──
 loadStats();
 setInterval(loadStats,10000);
+loadCollectorStatus();
+setInterval(loadCollectorStatus,15000);
 </script>
 </body>
 </html>
