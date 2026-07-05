@@ -1,0 +1,148 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-siem-overview
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: "SIEM"
+data:
+  homelab-siem-overview.json: |
+    {
+      "title": "HomeLab SIEM — Overview",
+      "uid": "homelab-siem-overview",
+      "schemaVersion": 38,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-6h", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Total Events Ingested",
+          "type": "stat",
+          "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+          "targets": [{
+            "expr": "sum(siem_events_total)",
+            "legendFormat": "Events"
+          }],
+          "options": { "colorMode": "background", "graphMode": "area" },
+          "fieldConfig": { "defaults": { "color": { "mode": "thresholds" },
+            "thresholds": { "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1000 },
+              { "color": "red", "value": 10000 }
+            ]}
+          }}
+        },
+        {
+          "id": 2,
+          "title": "Total Alerts Generated",
+          "type": "stat",
+          "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+          "targets": [{
+            "expr": "sum(siem_alerts_total)",
+            "legendFormat": "Alerts"
+          }],
+          "options": { "colorMode": "background" },
+          "fieldConfig": { "defaults": { "color": { "mode": "thresholds" },
+            "thresholds": { "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 50 }
+            ]}
+          }}
+        },
+        {
+          "id": 3,
+          "title": "Detection Rules Loaded",
+          "type": "stat",
+          "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+          "targets": [{
+            "expr": "siem_rules_loaded_total",
+            "legendFormat": "Rules"
+          }],
+          "options": { "colorMode": "value" }
+        },
+        {
+          "id": 4,
+          "title": "SIEM Pod CPU Usage",
+          "type": "stat",
+          "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+          "targets": [{
+            "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"homelab-siem\"}[5m])) * 100",
+            "legendFormat": "CPU %"
+          }],
+          "fieldConfig": { "defaults": { "unit": "percent",
+            "thresholds": { "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "red", "value": 80 }
+            ]}
+          }}
+        },
+        {
+          "id": 5,
+          "title": "Events Ingested Over Time",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "sum(rate(siem_events_total[5m])) by (category)",
+            "legendFormat": "{{category}}"
+          }],
+          "fieldConfig": { "defaults": { "unit": "reqps" }}
+        },
+        {
+          "id": 6,
+          "title": "Alerts by Severity",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "sum(rate(siem_alerts_total[5m])) by (severity)",
+            "legendFormat": "{{severity}}"
+          }],
+          "fieldConfig": { "defaults": { "unit": "reqps",
+            "custom": { "fillOpacity": 20 }
+          }}
+        },
+        {
+          "id": 7,
+          "title": "SIEM Pod Memory Usage",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "sum(container_memory_working_set_bytes{namespace=\"homelab-siem\"}) / 1024 / 1024",
+            "legendFormat": "Memory MB"
+          }],
+          "fieldConfig": { "defaults": { "unit": "decmbytes",
+            "thresholds": { "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 300 },
+              { "color": "red", "value": 450 }
+            ]}
+          }}
+        },
+        {
+          "id": 8,
+          "title": "HTTP Request Duration (p95)",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "histogram_quantile(0.95, sum(rate(siem_http_request_duration_seconds_bucket[5m])) by (le, endpoint))",
+            "legendFormat": "p95 {{endpoint}}"
+          }],
+          "fieldConfig": { "defaults": { "unit": "s" }}
+        },
+        {
+          "id": 9,
+          "title": "Alerts by Rule ID",
+          "type": "barchart",
+          "gridPos": { "x": 0, "y": 20, "w": 24, "h": 8 },
+          "targets": [{
+            "expr": "topk(10, sum(siem_alerts_total) by (rule_id))",
+            "legendFormat": "{{rule_id}}"
+          }],
+          "options": { "orientation": "horizontal" }
+        }
+      ]
+    }
