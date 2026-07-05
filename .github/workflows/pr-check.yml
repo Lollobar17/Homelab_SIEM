@@ -35,10 +35,18 @@ jobs:
             python -c "import app; from siem import collector, detector, storage; print('Imports OK')"
           fi
 
-      - name: Build Docker (verifica Dockerfile valido)
+      - name: Build Docker SIEM (verifica Dockerfile valido)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./k8s/Dockerfile
           push: false
           tags: homelab-siem:pr-${{ github.event.number }}
+
+      - name: Build Docker Falco collector (verifica Dockerfile valido)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./scripts
+          file: ./scripts/Dockerfile.falco-collector
+          push: false
+          tags: falco-collector:pr-${{ github.event.number }}
