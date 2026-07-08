@@ -132,7 +132,7 @@ jobs:
           echo "**Falco collector:** \`${{ env.COLLECTOR_IMAGE_NAME }}:${{ steps.vars.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
   deploy:
-    name: "Deploy -> k3s Rolling Update"
+    name: "Deploy -> k3s via Helm"
     runs-on: ubuntu-latest
     needs: build-push
     environment: production
@@ -145,7 +145,7 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Sync manifest e rolling update immagine
+      - name: Sync repo e helm upgrade
         env:
           SHA_TAG: ${{ needs.build-push.outputs.sha-tag }}
         run: |
@@ -156,18 +156,12 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            kubectl apply -f k8s/manifests/
-            kubectl apply -f k8s/falco-collector.yaml
-
-            kubectl set image deployment/homelab-siem \
-              siem=${{ env.IMAGE_NAME }}:$SHA_TAG \
-              -n ${{ env.NAMESPACE }}
-            kubectl set image deployment/falco-collector \
-              falco-collector=${{ env.COLLECTOR_IMAGE_NAME }}:$SHA_TAG \
-              -n ${{ env.NAMESPACE }}
-
-            kubectl rollout status deployment/homelab-siem -n ${{ env.NAMESPACE }} --timeout=180s
-            kubectl rollout status deployment/falco-collector -n ${{ env.NAMESPACE }} --timeout=60s
+            helm upgrade homelab-siem k8s/homelab-siem-chart \
+              -n ${{ env.NAMESPACE }} \
+              --set namespace.name=${{ env.NAMESPACE }} \
+              --set siem.image.tag=$SHA_TAG \
+              --set falcoCollector.image.tag=$SHA_TAG \
+              --wait --timeout 180s
           EOF
 
       - name: Rollback automatico in caso di fallimento
@@ -176,7 +170,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} bash -s << 'EOF'
             export KUBECONFIG=/home/ubuntu/.kube/config
             echo "Deploy fallito, rollback in corso..."
-            kubectl rollout undo deployment/homelab-siem -n homelab-siem
+            helm rollback homelab-siem -n homelab-siem
             kubectl rollout status deployment/homelab-siem -n homelab-siem --timeout=60s
           EOF
 
@@ -194,6 +188,6 @@ jobs:
       - name: Riepilogo deploy
         if: success()
         run: |
-          echo "### Deploy completato" >> $GITHUB_STEP_SUMMARY
+          echo "### Deploy completato via Helm" >> $GITHUB_STEP_SUMMARY
           echo "**Namespace:** \`${{ env.NAMESPACE }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Tag deployato:** \`${{ needs.build-push.outputs.sha-tag }}\`" >> $GITHUB_STEP_SUMMARY
