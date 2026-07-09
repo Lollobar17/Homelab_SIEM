@@ -22,6 +22,7 @@ siem:
     flaskEnv: production
     port: 5000
     dbPath: /app/data/siem.db
+    dbBackend: sqlite
     syslogEnabled: true
     syslogPort: 5140
   service:
@@ -54,6 +55,27 @@ falcoCollector:
     limits:
       cpu: 150m
       memory: 128Mi
+
+postgres:
+  enabled: false
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    database: siem
+    username: siem
+    password: ""
+  resources:
+    requests:
+      cpu: 150m
+      memory: 256Mi
+    limits:
+      cpu: 400m
+      memory: 512Mi
+  storage:
+    size: 2Gi
+    storageClassName: local-path
 
 monitoring:
   serviceMonitor:

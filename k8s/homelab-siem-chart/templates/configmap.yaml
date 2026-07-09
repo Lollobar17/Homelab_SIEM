@@ -17,3 +17,10 @@ data:
   SIEM_PORT: {{ .Values.siem.config.port | quote }}
   SIEM_DB_PATH: {{ .Values.siem.config.dbPath | quote }}
   PYTHONUNBUFFERED: "1"
+  SIEM_DB_BACKEND: {{ ternary "postgres" .Values.siem.config.dbBackend .Values.postgres.enabled | quote }}
+  {{- if .Values.postgres.enabled }}
+  SIEM_POSTGRES_HOST: "postgres.{{ .Values.namespace.name }}.svc.cluster.local"
+  SIEM_POSTGRES_PORT: "5432"
+  SIEM_POSTGRES_DB: {{ .Values.postgres.auth.database | quote }}
+  SIEM_POSTGRES_USER: {{ .Values.postgres.auth.username | quote }}
+  {{- end }}

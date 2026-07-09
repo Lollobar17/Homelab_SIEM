@@ -38,6 +38,13 @@ spec:
           envFrom:
             - configMapRef:
                 name: siem-config
+          env:
+            - name: SIEM_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: homelab-siem-postgres-credentials
+                  key: POSTGRES_PASSWORD
+                  optional: true
           volumeMounts:
             - name: siem-data
               mountPath: /app/data
