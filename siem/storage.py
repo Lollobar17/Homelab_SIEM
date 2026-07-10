@@ -12,6 +12,7 @@ import json
 import os
 import logging
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -37,12 +38,47 @@ if BACKEND == "postgres":
     _PG_USER = os.getenv("SIEM_POSTGRES_USER", "siem")
     _PG_PASSWORD = os.getenv("SIEM_POSTGRES_PASSWORD", "")
 
-    _pg_pool = psycopg2.pool.ThreadedConnectionPool(
-        1, 10,
-        host=_PG_HOST, port=_PG_PORT, dbname=_PG_DB,
-        user=_PG_USER, password=_PG_PASSWORD,
-        cursor_factory=psycopg2.extras.RealDictCursor,
-    )
+    # Lazy, retrying pool: avoids crashing the whole process at import time
+    # if Postgres isn't accepting connections yet (e.g. both pods starting
+    # simultaneously after a fresh deploy or node restart).
+    _pg_pool = None
+    _pg_pool_lock = threading.Lock()
+
+    def _get_pg_pool():
+        global _pg_pool
+        if _pg_pool is not None:
+            return _pg_pool
+        with _pg_pool_lock:
+            if _pg_pool is not None:
+                return _pg_pool
+            max_attempts = 30
+            wait_seconds = 2
+            last_exc = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    pool = psycopg2.pool.ThreadedConnectionPool(
+                        1, 10,
+                        host=_PG_HOST, port=_PG_PORT, dbname=_PG_DB,
+                        user=_PG_USER, password=_PG_PASSWORD,
+                        cursor_factory=psycopg2.extras.RealDictCursor,
+                    )
+                    logger.info(
+                        "[DB] Connected to PostgreSQL at %s:%s (attempt %d/%d)",
+                        _PG_HOST, _PG_PORT, attempt, max_attempts,
+                    )
+                    _pg_pool = pool
+                    return _pg_pool
+                except psycopg2.OperationalError as e:
+                    last_exc = e
+                    logger.warning(
+                        "[DB] PostgreSQL not ready yet (attempt %d/%d): %s — retrying in %ds",
+                        attempt, max_attempts, e, wait_seconds,
+                    )
+                    time.sleep(wait_seconds)
+            logger.error(
+                "[DB] Giving up connecting to PostgreSQL after %d attempts", max_attempts
+            )
+            raise last_exc
 
     class _PGConnAdapter:
         """
@@ -73,11 +109,7 @@ if BACKEND == "postgres":
 def _get_conn():
     if not hasattr(_local, "conn"):
         if BACKEND == "postgres":
-            raw = _pg_pool.getconn()
-            # Autocommit avoids leaving implicit transactions open after plain
-            # SELECTs (psycopg2 defaults to autocommit=False, unlike sqlite3),
-            # which would otherwise hold locks and block concurrent DDL
-            # (CREATE TABLE/ALTER TABLE) from other threads/pods on startup.
+            raw = _get_pg_pool().getconn()
             raw.autocommit = True
             with raw.cursor() as cur:
                 cur.execute("SET TIME ZONE 'UTC'")
