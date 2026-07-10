@@ -74,9 +74,13 @@ def _get_conn():
     if not hasattr(_local, "conn"):
         if BACKEND == "postgres":
             raw = _pg_pool.getconn()
+            # Autocommit avoids leaving implicit transactions open after plain
+            # SELECTs (psycopg2 defaults to autocommit=False, unlike sqlite3),
+            # which would otherwise hold locks and block concurrent DDL
+            # (CREATE TABLE/ALTER TABLE) from other threads/pods on startup.
+            raw.autocommit = True
             with raw.cursor() as cur:
                 cur.execute("SET TIME ZONE 'UTC'")
-            raw.commit()
             conn = _PGConnAdapter(raw)
         else:
             import sqlite3
