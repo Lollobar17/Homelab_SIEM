@@ -410,12 +410,12 @@ def update_alert_triage(
 
 def get_stats() -> dict:
     conn = _get_conn()
-    total_events  = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-    total_alerts  = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
-    critical      = conn.execute("SELECT COUNT(*) FROM alerts WHERE severity='CRITICAL'").fetchone()[0]
-    high          = conn.execute("SELECT COUNT(*) FROM alerts WHERE severity='HIGH'").fetchone()[0]
-    medium        = conn.execute("SELECT COUNT(*) FROM alerts WHERE severity='MEDIUM'").fetchone()[0]
-    low           = conn.execute("SELECT COUNT(*) FROM alerts WHERE severity='LOW'").fetchone()[0]
+    total_events  = conn.execute("SELECT COUNT(*) AS cnt FROM events").fetchone()["cnt"]
+    total_alerts  = conn.execute("SELECT COUNT(*) AS cnt FROM alerts").fetchone()["cnt"]
+    critical      = conn.execute("SELECT COUNT(*) AS cnt FROM alerts WHERE severity='CRITICAL'").fetchone()["cnt"]
+    high          = conn.execute("SELECT COUNT(*) AS cnt FROM alerts WHERE severity='HIGH'").fetchone()["cnt"]
+    medium        = conn.execute("SELECT COUNT(*) AS cnt FROM alerts WHERE severity='MEDIUM'").fetchone()["cnt"]
+    low           = conn.execute("SELECT COUNT(*) AS cnt FROM alerts WHERE severity='LOW'").fetchone()["cnt"]
 
     cat_rows = conn.execute(
         "SELECT category, COUNT(*) as cnt FROM events GROUP BY category"
@@ -463,8 +463,8 @@ def get_stats() -> dict:
     top_ips = [{"ip": r["ip"], "count": r["cnt"]} for r in ip_rows]
 
     purple_team = conn.execute(
-        "SELECT COUNT(*) FROM events WHERE category='purple_team'"
-    ).fetchone()[0]
+        "SELECT COUNT(*) AS cnt FROM events WHERE category='purple_team'"
+    ).fetchone()["cnt"]
 
     return {
         "total_events":  total_events,
