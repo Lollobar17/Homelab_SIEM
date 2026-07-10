@@ -34,6 +34,9 @@ siem:
     size: 1Gi
     storageClassName: local-path
   hpa:
+    # WARNING: only safe to scale beyond 1 replica when postgres.enabled=true.
+    # With the sqlite backend, multiple pods writing to the same PVC file
+    # concurrently risks database corruption, not just a handled error.
     enabled: true
     minReplicas: 1
     maxReplicas: 3
