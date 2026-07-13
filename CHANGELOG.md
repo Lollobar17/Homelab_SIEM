@@ -5,6 +5,148 @@ This project follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 -----
 
+## [3.0.0] - 2026-07-10
+
+> [!IMPORTANT]
+> Major infrastructure migration: from a local k3d cluster to a real cloud-native
+> deployment on Oracle Cloud Infrastructure (OCI), with a parametrized Helm chart,
+> runtime security monitoring via Falco, a decentralized C2 emulator (ArachneC2)
+> for purple-team testing, a finalized Prometheus + Grafana observability stack,
+> and an optional PostgreSQL backend for horizontal scaling.
+
+### Added — Cloud Infrastructure & CI/CD
+
+- **Oracle Cloud VM Provisioner** (`.github/workflows/oracle-vm-provisioner.yml`) —
+  idempotent GitHub Actions workflow that provisions and maintains an OCI Always
+  Free ARM instance (`VM.Standard.A1.Flex`). Falls back to `VM.Standard.A2.Flex`
+  and downgrades in place when A1 capacity is exhausted region-wide, with
+  automatic retry (handles transient 409 conflicts during the downgrade) and an
+  idempotency check so the hourly cron never creates duplicate instances once
+  provisioning has succeeded.
+- **k3s** installed natively on the OCI VM (replacing k3d-in-Docker) — no nested
+  virtualization, resolving the WSL2 stability issues that affected the previous
+  local cluster.
+- **CI/CD pipeline rebuilt** (`ci-cd.yml`) — GitHub-hosted runners (previously
+  self-hosted, unsuitable for a public repo) connect to the VM over SSH using a
+  dedicated deploy key; `environment: production` requires manual approval before
+  every deploy; automatic rollback via `helm rollback` on failure; smart Docker
+  tagging (branch/semver/sha) via `docker/metadata-action`.
+- **Parametrized Helm chart** (`k8s/homelab-siem-chart/`) replacing static
+  manifests — SIEM, Falco collector, optional PostgreSQL, `ServiceMonitor` and
+  Grafana dashboard all templated behind a single `values.yaml`. Legacy static
+  manifests preserved under `k8s/legacy-manifests/` for historical reference.
+
+### Added — Runtime Security (Falco)
+
+- **Falco** (eBPF, modern probe) deployed via Helm for kernel-level runtime
+  security monitoring across all containers on the node.
+- **`scripts/falco_collector.py`** — lightweight webhook bridge that normalizes
+  Falco JSON alerts, maps them to MITRE ATT&CK techniques, and batches them into
+  `/api/v1/ingress`.
+- Custom Falco rules for ArachneC2 beacon and lateral-movement network patterns,
+  complementing the SIEM-side `ARC-*` detection rules at the kernel/syscall layer.
+
+### Added — ArachneC2 Purple Team Simulator
+
+- **`arachne/`** — a decentralized C2 implant simulator written in Go, using
+  libp2p for peer-to-peer communication: Kademlia DHT peer discovery, GossipSub
+  message propagation, NAT hole-punching and circuit relay. Simulates beaconing,
+  lateral movement, and chunked data exfiltration for detection-engineering
+  practice against non-trivial, decentralized C2 infrastructure (not just a
+  classic client-server beacon).
+- **`siem/arachne_rules.py`** — 14 detection rules (ARC-001 through ARC-014)
+  covering C2 beaconing, domain fronting/Host header spoofing, encrypted and
+  signed channels (NaCl/Ed25519), DHT discovery, GossipSub propagation, NAT
+  traversal and relay usage, P2P heartbeats, lateral movement, and chunked/
+  encrypted exfiltration.
+- **`scripts/arachne_collector.py`** — JSONL log tailer that normalizes
+  ArachneC2 events by type (beacon, peer communication, exfiltration) and
+  batches them into `/api/v1/ingress`.
+
+### Added — Observability
+
+- **Prometheus + Grafana finalized** via the `kube-prometheus-stack` Helm chart,
+  superseding the earlier Docker Compose monitoring stack (retained only as
+  historical reference under `monitoring/`).
+- **`ServiceMonitor`** for automatic discovery of the SIEM `/metrics` endpoint
+  across namespaces.
+- **Dedicated Grafana dashboard** ("HomeLab SIEM — Overview") provisioned
+  automatically via a labeled ConfigMap (sidecar auto-discovery, no manual
+  import) — events ingested, alerts by severity/rule ID, HTTP latency (p95),
+  pod CPU/memory.
+- **Fixed**: `siem_events_total` and `siem_ingest_requests_total` Prometheus
+  counters were defined but never incremented anywhere in `app.py`; wired into
+  both the legacy `/api/ingest` and the `/api/v1/ingress` endpoints.
+- **Collector status indicator** in the dashboard topbar — new
+  `/api/v1/collectors/status` endpoint reports per-collector health (file
+  tailers, syslog listener); topbar badge turns green/yellow/red based on
+  live status, with a per-collector tooltip.
+
+### Added — PostgreSQL Support (opt-in, not active in production by default)
+
+- **`siem/storage.py` rewritten** for dual-backend support — selected via
+  `SIEM_DB_BACKEND=sqlite` (default) or `postgres`. Public function signatures
+  are identical across both backends; no changes required in `app.py` or
+  `detector.py`.
+- PostgreSQL deployable directly via the Helm chart (`postgres.enabled=true`) —
+  Deployment, PVC, Secret and the required NetworkPolicy rules are all templated.
+- Enables genuine horizontal scaling (`HorizontalPodAutoscaler` up to 3 replicas)
+  once activated. **SQLite remains the default and is not safe to scale beyond
+  1 replica** — multiple pods writing to the same `ReadWriteOnce` PVC file risks
+  database corruption, not just a handled error. This constraint is documented
+  directly in `values.yaml`.
+
+### Fixed
+
+- **Postgres idle-in-transaction lock pileup** — psycopg2 connections now use
+  `autocommit=True`. Previously, every plain `SELECT` left an implicit
+  transaction open (psycopg2 defaults to `autocommit=False`, unlike `sqlite3`),
+  which held locks and blocked concurrent `CREATE TABLE`/`ALTER TABLE` statements
+  from other threads or pods during startup.
+- **Postgres startup race condition** — the connection pool is now created
+  lazily on first real use, with retry/backoff (up to 60s), instead of
+  connecting eagerly at module import time. Previously, if the SIEM pod started
+  before Postgres was accepting connections, the entire process crashed at
+  import instead of waiting.
+- **`RealDictCursor` incompatibility** — `get_stats()` used positional row
+  indexing (`fetchone()[0]`), which fails against
+  `psycopg2.extras.RealDictCursor` (`KeyError: 0`); switched to named-column
+  access (`fetchone()["cnt"]`), compatible with both backends.
+- **OCI provisioning workflow** — fixed missing `fingerprint` in the OCI CLI
+  config (caused silent authentication failures), SSH key format validation
+  (embedded newlines from copy-paste broke the OCI API's strict format check),
+  and a transient `409 Conflict` during the A2→A1 shape downgrade (now retried
+  automatically with backoff).
+- **Falco custom rules** — `fd.sip`/`fd.dport` were semantically incorrect for
+  CIDR-range and server-port matching; corrected to `fd.snet` (subnet-type
+  field, required for matching against CIDR lists) and `fd.sport` (Falco's
+  "server port" convention, which for outbound connections *is* the
+  destination port — not a source-port bug as initially assumed).
+- **Falco driver deprecation** — `driver.kind: ebpf` (legacy probe) was removed
+  in recent Falco Helm chart versions; migrated to `driver.kind: modern_ebpf`.
+
+### Changed
+
+- Quick Start "Option D — Kubernetes" now documents the Helm chart deployment
+  path against the OCI/k3s cluster instead of local k3d.
+- Roadmap updated: collector status indicator, Helm chart, and Prometheus/
+  Grafana sidecar are now marked complete; PostgreSQL migration marked
+  complete-but-opt-in (see above).
+
+### Infrastructure
+
+| Component | Before (v2.4.0) | Now (v3.0.0) |
+|---|---|---|
+| Cluster | k3d on WSL2 (local) | k3s on Oracle Cloud (OCI, ARM64, Always Free) |
+| Deploy mechanism | Self-hosted runner, direct `kubectl` | GitHub-hosted runner via SSH + Helm |
+| Manifests | Static YAML | Parametrized Helm chart |
+| Database | SQLite only | SQLite (default) or PostgreSQL (opt-in) |
+| Runtime security | — | Falco (eBPF) |
+| Purple team | Caldera only | Caldera + ArachneC2 (decentralized C2 emulator) |
+| Observability | Manual Docker Compose stack | `kube-prometheus-stack` (Helm), auto-discovered dashboards |
+
+-----
+
 ## [2.4.0] - 2026-06-10
 
 > Kubernetes deployment and CI/CD pipeline — the SIEM is now fully containerized
