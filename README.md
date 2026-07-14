@@ -25,6 +25,10 @@ and an optional **PostgreSQL** backend for horizontal scaling.
 
 -----
 
+> **Note to the community:** Want to know *why* this project exists, the architectural choices made, and the failures encountered along the way? Please read the [SOUL.md](SOUL.md) file. It's the most important document in this repository.
+
+-----
+
 ## Table of Contents
 
 - [Features](#features)
@@ -43,6 +47,7 @@ and an optional **PostgreSQL** backend for horizontal scaling.
 - [Backup and Recovery](#backup-and-recovery)
 - [Project Structure](#project-structure)
 - [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
 - [Roadmap](#roadmap)
 - [License](#license)
 
@@ -681,6 +686,14 @@ so the fixes stay discoverable instead of buried in commit history.
 `kubectl exec ... << 'EOF' ... EOF` (heredoc) requires the `-i` flag
 (`kubectl exec -i ...`) to actually pipe the script into the container —
 without it, the command silently does nothing.
+
+-----
+
+## Contributing
+
+Contributions make the open-source community an amazing place to learn, inspire, and create. Whether you want to add a new MITRE detection rule, improve the Kubernetes manifests, or expand the ArachneC2 simulator, your help is greatly appreciated!
+
+Please check out our [Contributing Guidelines](CONTRIBUTING.md) to see where we need help and how to get started safely without breaking the ingestion pipeline.
 
 -----
 
