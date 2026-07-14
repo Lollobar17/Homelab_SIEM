@@ -627,6 +627,62 @@ Homelab_SIEM/
 
 -----
 
+## Troubleshooting
+
+Real issues hit during the OCI/k3s migration and Helm/PostgreSQL work — kept here
+so the fixes stay discoverable instead of buried in commit history.
+
+### Oracle Cloud provisioning
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Out of capacity` on every `VM.Standard.A1.Flex` attempt, every availability domain | Always Free ARM capacity exhausted region-wide (very common, not account-specific) | Fall back to `VM.Standard.A2.Flex` (usually has spare capacity), then downgrade the running instance back to `A1.Flex` in place — see `oracle-vm-provisioner.yml` |
+| `error loading config file: fingerprint missing` | The OCI CLI config block never included the `fingerprint=` line | Add it explicitly; find the value under Console → Profile → API Keys |
+| `Authentication requires a private key, but a public key was provided` | The `OCI_API_KEY` secret held the public key instead of the private one | Re-generate the key pair; store only the private `.pem` (including `BEGIN/END PRIVATE KEY` lines) in the secret |
+| SSH connection times out (not refused) | No Internet Gateway attached to the VCN, or no route to it | Check `oci network internet-gateway list`; if empty, create one and add a `0.0.0.0/0` route pointing to it |
+| `Invalid format for ssh public key` on instance launch | Embedded newline in the `OCI_SSH_PUBLIC_KEY` secret (common copy-paste artifact) | Strip with `tr -d '\r\n'` before writing the key to a file in the workflow |
+
+### Docker / CI
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `error getting credentials - err: exit status 1` on `docker buildx build --push` | `~/.docker/config.json` has `"credsStore": "desktop.exe"`, which WSL2 can't invoke | Remove the `credsStore` line, keep only `"auths": {"https://index.docker.io/v1/": {}}`, then `docker login` again |
+| Credential fix keeps reverting after each `docker login` | The CLI resets `credsStore` automatically when it detects Docker Desktop/WSL2 integration | Remove `credsStore` again after every fresh login, or use `docker login -u <user>` instead of the device-code flow |
+| Uncommitted local changes to `values.yaml`/chart templates vanish after a pipeline run | The CI/CD `git reset --hard origin/main` step wipes any file that's tracked by git but has unpushed local edits | Commit and push chart/workflow changes immediately after editing — never leave them staged-but-uncommitted between pipeline runs |
+
+### Kubernetes / Helm
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `nil pointer evaluating interface {}.enabled` on `helm upgrade` | A template references a `values.yaml` key that got reverted (see git reset issue above) | Re-apply the missing `values.yaml` section and re-commit |
+| `Unable to continue with install: ... invalid ownership metadata` | Helm won't adopt a namespace/resource created manually via `kubectl apply` | Either label/annotate it manually with `meta.helm.sh/release-name` + `app.kubernetes.io/managed-by: Helm`, or delete and let Helm recreate it (safe for stateless resources; **never** for a PVC holding real data) |
+| `cannot re-use a name that is still in use` / `namespaces "X" already exists` on `helm install` | Confusion between the Helm release's tracking namespace (`-n`) and the namespace the chart's own template creates | If the chart creates its own namespace via a template, install the release into an *existing* namespace (e.g. `default`) with `-n default`, and let the template create the target namespace — don't pass `--create-namespace` at the same time |
+
+### Falco
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `The following chart configuration is no longer supported: driver.kind=ebpf` | The legacy eBPF probe was removed from recent Falco Helm chart versions | Use `driver.kind: modern_ebpf` instead |
+| Falco pod `CrashLoopBackOff` with a rule schema error on `priority: HIGH` | `HIGH` is not a valid Falco priority — valid values are `EMERGENCY/ALERT/CRITICAL/ERROR/WARNING/NOTICE/INFO/DEBUG` | Use `WARNING` or `CRITICAL` as appropriate |
+| `unrecognized IPv4 address 10.0.0.0/8` compiling a custom rule | Comparing a CIDR-range list against an address-typed field (`fd.sip`) instead of a subnet-typed one | Use `fd.snet` for CIDR-range comparisons |
+| `filter_check called with nonexistent field fd.dport` | `fd.dport` doesn't exist in Falco's field set | Falco uses `fd.sport` for the "server port" — which, for outbound connections, *is* the destination port. Don't rename it. |
+
+### PostgreSQL backend
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| SIEM pod crashes immediately on startup when Postgres and SIEM start at the same time | The connection pool was created eagerly at module import time, with no retry | Make the pool lazy (create on first real use) with retry/backoff |
+| Everything eventually hangs; `pg_stat_activity` shows many sessions stuck on `CREATE TABLE`, one `idle in transaction` for a long time | psycopg2 defaults to `autocommit=False` — a plain `SELECT` leaves an implicit transaction open, blocking later DDL from other threads/pods | Set `autocommit = True` on the connection right after acquiring it from the pool |
+| `KeyError: 0` on `fetchone()[0]` | `psycopg2.extras.RealDictCursor` returns dict-like rows, not tuples — positional indexing fails | Use named-column access (`SELECT COUNT(*) AS cnt ... fetchone()["cnt"]`) instead |
+
+### General debugging tip
+
+`kubectl exec ... << 'EOF' ... EOF` (heredoc) requires the `-i` flag
+(`kubectl exec -i ...`) to actually pipe the script into the container —
+without it, the command silently does nothing.
+
+-----
+
 ## Roadmap
 
 - [x] Core SIEM — log collection, detection, dashboard
