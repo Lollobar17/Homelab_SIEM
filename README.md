@@ -20,7 +20,7 @@ and an optional **PostgreSQL** backend for horizontal scaling.
 ![Helm](https://img.shields.io/badge/Helm-Chart-0F1689?style=flat&logo=helm&logoColor=white)
 ![Falco](https://img.shields.io/badge/Falco-Runtime%20Security-3796E8?style=flat)
 ![Prometheus](https://img.shields.io/badge/Prometheus-Grafana-E6522C?style=flat&logo=prometheus&logoColor=white)
-![CI/CD](https://github.com/Lollobar17/Homelab_SIEM/actions/workflows/ci-cd.yml/badge.svg)
+![CI/CD](https://github.com/Lollobar17/Homelab_SIEM/actions/workflows/ci-cd-helm.yml/badge.svg)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat)
 
 -----
