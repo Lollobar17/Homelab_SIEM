@@ -49,6 +49,7 @@ and an optional **PostgreSQL** backend for horizontal scaling.
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [Roadmap](#roadmap)
+- [Credits & Acknowledgements](#credits--acknowledgements)
 - [License](#license)
 
 -----
