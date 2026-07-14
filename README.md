@@ -742,6 +742,12 @@ Please check out our [Contributing Guidelines](CONTRIBUTING.md) to see where we 
 
 -----
 
+## Credits & Acknowledgements
+
+* **ArachneC2 Simulation:** The decentralized C2 implant simulation used in this project is based on and adapted from the amazing work by [portbuster1337](https://github.com/portbuster1337) on [ArachneC2](https://github.com/portbuster1337/ArachneC2). It has been integrated into this homelab to design, test, and validate the 14 application-level and eBPF/Falco detection rules.
+
+-----
+
 ## License
 
 MIT — use freely, learn a lot.
