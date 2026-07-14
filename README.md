@@ -42,6 +42,7 @@ and an optional **PostgreSQL** backend for horizontal scaling.
 - [Configuration](#configuration)
 - [Backup and Recovery](#backup-and-recovery)
 - [Project Structure](#project-structure)
+- [Troubleshooting](#troubleshooting)
 - [Roadmap](#roadmap)
 - [License](#license)
 
