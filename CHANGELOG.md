@@ -5,6 +5,101 @@ This project follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 -----
 
+## [3.1.0] - 2026-07-18
+
+> Adds a didactic purple-team lab built around two lightweight telemetry agents —
+> a Go agent for real host process monitoring, and a modular Nim project for
+> fully synthetic, controlled detection-engineering scenarios — plus a dedicated
+> correlation engine, CI job, and several CI reliability fixes.
+
+### Added — Purple Team Lab (Go Agent & Structured Nim Lab)
+
+- **Go telemetry agent** (`agent/`) — polls `/proc` on Linux, diffs known PIDs on
+  every tick, and emits structured process-creation events (parent/child, command
+  line, executable path). HTTP delivery with exponential backoff on `5xx`, no retry
+  on `4xx`, matching the ingest client conventions already used elsewhere in this
+  project.
+- **Structured Nim lab** (`purple-team/nim/`) — a modular Nimble package (11
+  single-responsibility modules: `models`, `telemetry`, `sender`, `scenarios`,
+  `transform_lab`, `artifact_analysis`, `system_event_lab`, `behavior_lab`,
+  `correlation_lab`, `signal_coverage`, `main`) generating fully synthetic,
+  deterministic telemetry for studying detection-engineering concepts in
+  isolation. 81 unit and integration tests, including two real compiled fixture
+  binaries used to validate static-string analysis.
+- **`purple-team/nim-loaders/loader.nim`** — a standalone single-file Nim script
+  demonstrating the underlying concept behind the lab's `transform_lab`/
+  `artifact_analysis` modules: an innocuous command (`uname -a`) is XOR-obfuscated
+  at compile time and decoded only at runtime, illustrating the gap between static
+  and behavioral analysis that the detection rules below are built to close.
+- **`siem/process_rules.py`** — `PROC-001`/`PROC-002`, detecting a system
+  discovery utility spawned by an unwhitelisted vs. an expected parent process
+  (Go agent telemetry).
+- **`siem/nim_lab_rules.py`** — `NIM-BEHAVIOR-001`/`NIM-BEHAVIOR-002`, the same
+  concept adapted to the wire schema produced by the Nim lab's `behavior_lab`/
+  `correlation_lab` modules. Deliberately **no** rule exists for
+  `transform`/`lifecycle`/`artifact` category events — representing or
+  transforming test data in bytes is not, by itself, a detection signal.
+- **`siem/correlation_rules.py`** — a deliberately separate detection engine
+  (not appended to `detector.py`'s per-event `RULES`) evaluating **sequences**
+  of related events rather than isolated ones. `CORR-001` fires only when an
+  unknown-parent process spawn is followed, within a bounded time window, by a
+  discovery utility spawned from that same process — the signal comes from the
+  chain, not from either event alone.
+- **`integrate_purple_team_lab.sh`** — idempotent bash integrator for the entire
+  lab: creates/patches the Go agent, the Nim loader, the structured Nim project,
+  the three new SIEM rule modules, their tests, and the two new CI jobs below.
+  Safe to re-run — every write is either a full idempotent regeneration of a
+  lab-owned file, or a guarded patch that checks for an existing marker before
+  touching a shared file (`detector.py`, `app.py`, the CI workflow).
+- **Two new CI/CD jobs** in `ci-cd-helm.yml`:
+  - `Purple Team Lab — Build & Behavioral Test` — compiles the single-file
+    XOR loader and verifies, in CI, that the obfuscated string is absent from a
+    static `strings` scan but present in the loader's actual runtime output.
+  - `Nim Purple Team Lab — Build, Test & SIEM Integration` — `nimble build` +
+    the full 81-test suite, plus a real HTTP round-trip against a mock SIEM
+    ingress server to validate the agent-to-detection pipeline end-to-end.
+
+### Fixed
+
+- **`ModuleNotFoundError: No module named 'siem'` in CI** — bare `pytest` (as
+  invoked by several CI jobs, unlike a local `python3 -m pytest`) does not add
+  the repository root to `sys.path`, so `tests/*.py` could not import sibling
+  packages like `siem/`. Added `pytest.ini` with `pythonpath = .` at the repo
+  root, fixing every CI job's test collection uniformly regardless of how each
+  one invokes `pytest`.
+- **Compiled Nim binaries accidentally committed to git** — `nimble build`/
+  `nimble test` produce platform-specific executables alongside their `.nim`
+  sources (`purple-team/nim/main`, `purple-team/nim/tests/test_*`,
+  `purple-team/nim/tests/fixtures/{plaintext,obfuscated}_sample`); a blanket
+  `git add -A` picked these up before a `.gitignore` rule existed for them.
+  Removed from tracking and excluded going forward.
+- **`NIM-BEHAVIOR-001` never firing in practice** — the Nim lab runner
+  (`main.nim`) originally sent only the aggregated `correlation.sequence_observed`
+  event to the SIEM, never the individual `behavior`-category sub-events that
+  the per-event rule actually matches against. `main.nim` now also emits each
+  sequence sub-event standalone, in addition to the aggregated sequence,
+  mirroring how the Go agent emits individual process events.
+
+### Changed
+
+- **Dependabot switched from a weekly to a monthly schedule** across all five
+  configured ecosystems (`github-actions`, `pip`, the three `docker` directories,
+  `gomod`) to reduce pull request noise on a low-traffic personal repo.
+- Confirmed (via GitHub's own supported-ecosystems documentation) that
+  Dependabot has **no Nim/Nimble ecosystem support** — the lab currently has no
+  external Nimble dependencies (standard library only), but this is a known
+  limitation to keep in mind if any are added later.
+
+### Documentation
+
+- **README** — new [Purple Team Lab](README.md#purple-team-lab--go-agent--structured-nim-lab)
+  section with two Mermaid diagrams (agent-to-detection data pipeline, and the
+  lab-specific CI/CD jobs), a dedicated detection-rules table, updated
+  `Architecture` ASCII diagram, `Project Structure` tree, and five new
+  `Troubleshooting` entries.
+
+-----
+
 ## [3.0.0] - 2026-07-10
 
 > [!IMPORTANT]
