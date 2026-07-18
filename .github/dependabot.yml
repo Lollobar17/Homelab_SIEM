@@ -3,7 +3,7 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
       day: "monday"
     open-pull-requests-limit: 10
     labels: ["dependencies", "ci"]
@@ -18,7 +18,7 @@ updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
       day: "monday"
     open-pull-requests-limit: 10
     labels: ["dependencies", "python"]
@@ -30,27 +30,27 @@ updates:
   - package-ecosystem: "docker"
     directory: "/k8s"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
       day: "monday"
     labels: ["dependencies", "docker"]
 
   - package-ecosystem: "docker"
     directory: "/scripts"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
       day: "monday"
     labels: ["dependencies", "docker"]
 
   - package-ecosystem: "docker"
     directory: "/k8s/homelab-siem-chart"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
       day: "monday"
     labels: ["dependencies", "helm"]
 
   - package-ecosystem: "gomod"
     directory: "/agent"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
       day: "monday"
     labels: ["dependencies", "go"]
