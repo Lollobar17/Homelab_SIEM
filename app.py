@@ -3,6 +3,7 @@ app.py — HomeLab SIEM  ·  Flask Web Application
 """
 
 import json
+import hmac
 import logging
 import os
 import threading
@@ -51,6 +52,23 @@ flask_log_handler = logging.FileHandler("logs/flask_access.log")
 flask_log_handler.setLevel(logging.INFO)
 logging.getLogger("werkzeug").addHandler(flask_log_handler)
 logger = logging.getLogger("siem.app")
+
+_AGENT_TOKEN = os.getenv("SIEM_AGENT_TOKEN", "")
+if not _AGENT_TOKEN:
+    logger.warning(
+        "[Security] SIEM_AGENT_TOKEN non impostato: /api/v1/ingress accetta "
+        "richieste da chiunque, senza autenticazione."
+    )
+
+
+def _check_agent_token():
+    """Ritorna una risposta 401 se il token e' mancante/errato, altrimenti None."""
+    if not _AGENT_TOKEN:
+        return None
+    provided = request.headers.get("X-Agent-Token", "")
+    if not hmac.compare_digest(provided, _AGENT_TOKEN):
+        return jsonify({"error": "invalid or missing X-Agent-Token"}), 401
+    return None
 
 # ──────────────────────────────────────────────
 #  Config (override via config.json)
@@ -242,6 +260,10 @@ def api_v1_ingress():
 
     Optional: "detect": false skips the rule engine for pure log archival.
     """
+    auth_error = _check_agent_token()
+    if auth_error:
+        return auth_error
+
     body = request.get_json(silent=True)
     if body is None:
         return jsonify({"error": "invalid or missing JSON body"}), 400

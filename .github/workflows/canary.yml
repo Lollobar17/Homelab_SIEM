@@ -1,0 +1,92 @@
+name: Canary — Rebuild & Smoke Test
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  canary:
+    name: "Canary — rebuild con immagini fresche + smoke test"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout codice
+        uses: actions/checkout@v4
+
+      - name: Build immagine SIEM (forzando pull delle basi più recenti)
+        id: build
+        continue-on-error: true
+        run: docker build --pull -t canary-siem:latest -f k8s/Dockerfile .
+
+      - name: Avvia container e attendi readiness
+        id: run
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: |
+          docker run -d --name canary-siem -p 5000:5000 canary-siem:latest
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:5000/api/health > /dev/null; then
+              echo "healthy=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "healthy=false" >> "$GITHUB_OUTPUT"
+          docker logs canary-siem || true
+          exit 1
+
+      - name: Esegui smoke test applicativo (pytest, se presente)
+        id: smoke
+        if: steps.run.outcome == 'success'
+        continue-on-error: true
+        run: |
+          if [ -d "tests" ]; then
+            pip install --break-system-packages -q -r requirements.txt pytest
+            pytest tests/ -v --tb=short
+          else
+            echo "nessuna cartella tests/, salto"
+          fi
+
+      - name: Determina esito complessivo
+        id: outcome
+        run: |
+          if [ "${{ steps.build.outcome }}" = "success" ] && \
+             [ "${{ steps.run.outcome }}" = "success" ] && \
+             [ "${{ steps.smoke.outcome }}" != "failure" ]; then
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apri o aggiorna Issue in caso di fallimento
+        if: steps.outcome.outputs.failed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TITLE="🐤 Canary fallito — build/smoke test rotto ($(date -u +%Y-%m-%d))"
+          BODY="Il canary schedulato ha rilevato un problema.
+
+          - Build immagine: \`${{ steps.build.outcome }}\`
+          - Avvio + health check: \`${{ steps.run.outcome }}\`
+          - Smoke test pytest: \`${{ steps.smoke.outcome }}\`
+
+          Possibile causa: un'immagine base upstream ha ricevuto un aggiornamento
+          silenzioso non intercettato da Dependabot.
+
+          Log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          EXISTING=$(gh issue list --search "in:title \"Canary fallito\" is:open" --json number --jq '.[0].number // empty')
+
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "Il canary è ancora rosso. $BODY"
+          else
+            gh issue create --title "$TITLE" --body "$BODY" --label "canary,bug"
+          fi
+
+      - name: Cleanup container
+        if: always()
+        run: docker rm -f canary-siem 2>/dev/null || true

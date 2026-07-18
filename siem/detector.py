@@ -20,6 +20,8 @@ from siem.caldera_rules import CALDERA_RULES
 from siem.caldera_parser import is_caldera_event
 from siem.arachne_rules import ARACHNE_RULES
 from siem.falco_rules import FALCO_RULES
+from siem.process_rules import PROCESS_RULES
+from siem.nim_lab_rules import NIM_LAB_RULES
 
 logger = logging.getLogger("siem.detector")
 
@@ -408,6 +410,8 @@ RULES = RULES + AZURE_ACTIVITY_RULES
 RULES = RULES + SENTINEL_RULES
 RULES.extend(ARACHNE_RULES)
 RULES.extend(FALCO_RULES)
+RULES.extend(PROCESS_RULES)
+RULES.extend(NIM_LAB_RULES)
 
 # ──────────────────────────────────────────────
 #  Public API
