@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout codice
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build immagine SIEM (forzando pull delle basi più recenti)
         id: build
