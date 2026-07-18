@@ -36,7 +36,7 @@ jobs:
           fi
 
       - name: Build Docker SIEM (verifica Dockerfile valido)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./k8s/Dockerfile
@@ -44,7 +44,7 @@ jobs:
           tags: homelab-siem:pr-${{ github.event.number }}
 
       - name: Build Docker Falco collector (verifica Dockerfile valido)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./scripts
           file: ./scripts/Dockerfile.falco-collector

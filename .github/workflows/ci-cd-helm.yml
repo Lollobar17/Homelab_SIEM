@@ -268,7 +268,7 @@ jobs:
 
       - name: Build e Push SIEM
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./k8s/Dockerfile
@@ -280,7 +280,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build e Push Falco collector
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./scripts
           file: ./scripts/Dockerfile.falco-collector
