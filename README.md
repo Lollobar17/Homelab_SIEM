@@ -37,6 +37,7 @@ and an optional **PostgreSQL** backend for horizontal scaling.
 - [Cloud Infrastructure (Oracle Cloud + Kubernetes)](#cloud-infrastructure-oracle-cloud--kubernetes)
 - [Runtime Security — Falco](#runtime-security--falco)
 - [Purple Team — Caldera & ArachneC2](#purple-team--caldera--arachnec2)
+- [Purple Team Lab — Go Agent & Structured Nim Lab](#purple-team-lab--go-agent--structured-nim-lab)
 - [Observability — Prometheus & Grafana](#observability--prometheus--grafana)
 - [Database Backends — SQLite & PostgreSQL](#database-backends--sqlite--postgresql)
 - [Azure Cloud Integration](#azure-cloud-integration)
@@ -62,7 +63,7 @@ and an optional **PostgreSQL** backend for horizontal scaling.
 |**Log Parsing**        |SSH/auth, Apache/Nginx, Flask/Werkzeug, kernel/dmesg, syslog             |
 |**Threat Detection**   |Rule engine mapped to MITRE ATT&CK — on-premise, cloud, purple-team and runtime rules |
 |**Runtime Security**   |Falco (eBPF) — kernel-level syscall monitoring, custom C2 detection rules |
-|**Purple Team**        |Caldera sidecar (5 rules) + ArachneC2 decentralized C2 simulator (14 rules) |
+|**Purple Team**        |Caldera sidecar (5 rules) + ArachneC2 decentralized C2 simulator (14 rules) + a Go/Nim telemetry lab (5 rules) |
 |**Cloud Detection**    |Azure VNet Flow Logs + Activity Log + Microsoft Sentinel (21 cloud rules)|
 |**MITRE ATT&CK**       |Every rule mapped to a technique ID                                      |
 |**Dashboard**          |Live web UI — KPIs, charts, alert table, event stream, rule stats, collector status |
@@ -129,15 +130,17 @@ Open dashboard at `http://<node-ip>:30500`
 ## Architecture
 
 ```
-[Local Logs]  [Azure Cloud]  [Sentinel]  [Caldera :8888]  [ArachneC2]  [Falco (eBPF)]
-     ↓              ↓              ↓            ↓              ↓             ↓
-[collector]    [azure_*]    [sentinel_col]  [caldera_col]  [arachne_col]  [falco_col]
-     ↓              ↓              ↓            ↓              ↓             ↓
-     └──────────────┴──────────────┴────────────┴──────────────┴─────────────┘
+[Local Logs]  [Azure Cloud]  [Sentinel]  [Caldera :8888]  [ArachneC2]  [Falco (eBPF)]  [Go Agent]  [Nim Lab]
+     ↓              ↓              ↓            ↓              ↓             ↓             ↓            ↓
+[collector]    [azure_*]    [sentinel_col]  [caldera_col]  [arachne_col]  [falco_col]      └─────┬──────┘
+     ↓              ↓              ↓            ↓              ↓             ↓                    │
+     └──────────────┴──────────────┴────────────┴──────────────┴─────────────┴────────────────────┘
                                           ↓
-                     POST /api/v1/ingress (batch)  |  legacy /api/ingest
+     POST /api/v1/ingress (batch, X-Agent-Token auth for Go/Nim agents)  |  legacy /api/ingest
                                           ↓
                             [detector.py — MITRE-mapped rule engine]
+                                          ↓
+                    [correlation_rules.py — separate, sequence-based engine]
                                           ↓
                     [storage.py — SQLite (default) or PostgreSQL (opt-in)]
                                           ↓
@@ -145,6 +148,11 @@ Open dashboard at `http://<node-ip>:30500`
                                           ↓
                           [Grafana — auto-provisioned dashboard]
 ```
+
+> Go and Nim agents authenticate with an `X-Agent-Token` header and POST directly
+> to `/api/v1/ingress` rather than being polled by a collector script. See
+> [Purple Team Lab](#purple-team-lab--go-agent--structured-nim-lab) below for the
+> full agent-to-detection pipeline diagram.
 
 -----
 
@@ -202,6 +210,10 @@ The deploy job runs on a GitHub-hosted runner (not self-hosted, since the repo i
 public) and connects to the VM over SSH with a dedicated deploy key. The `production`
 GitHub Environment requires manual approval before every deploy.
 
+See [Purple Team Lab](#purple-team-lab--go-agent--structured-nim-lab) below for the
+two additional CI jobs (`Purple Team Lab`, `Nim Purple Team Lab`) that build and test
+the Go agent and the Nim lab on every push and pull request.
+
 -----
 
 ## Runtime Security — Falco
@@ -243,6 +255,185 @@ patterns:
 Events are written to a JSONL log and shipped to the SIEM by
 **`scripts/arachne_collector.py`**, detected by 14 rules in **`siem/arachne_rules.py`**
 (`ARC-001` through `ARC-014`).
+
+-----
+
+## Purple Team Lab — Go Agent & Structured Nim Lab
+
+A didactic purple-team lab built around two lightweight telemetry agents that speak
+the exact same wire protocol as the rest of the SIEM ingest pipeline, distinguished
+only by their `source` field (`go-agent` / `nim-agent`). Neither agent runs a
+detection engine itself — both are pure collector + sender components; all matching
+happens SIEM-side, in `detector.py` and the separate correlation engine.
+
+### Go agent — real host telemetry
+
+`agent/` is a small Go program that polls `/proc` on Linux, diffs the set of known
+PIDs on every tick, and emits a structured event for every new process it observes
+(parent/child relationship, command line, executable path). Delivery uses the same
+retry/backoff-on-5xx, no-retry-on-4xx logic as the rest of the ingest clients in
+this project.
+
+```
+agent/
+├── go.mod
+├── cmd/main.go
+└── pkg/
+    ├── models/telemetry.go
+    ├── collector/process.go     (polls /proc, diffs known PIDs)
+    └── sender/http.go           (HTTP POST + retry/backoff)
+```
+
+### Nim lab — synthetic, controlled scenarios
+
+`purple-team/nim/` is a modular Nim project (Nimble package) used to generate fully
+synthetic, deterministic telemetry for studying detection engineering concepts in
+isolation — without needing a real attack technique to reproduce them. Each module
+has a single responsibility:
+
+```
+purple-team/nim/
+├── nimble.nimble
+├── src/
+│   ├── models.nim              (typed data — Telemetry, ProcessContext, EventData, Result[T])
+│   ├── telemetry.nim           (Nim model → JSON, matching the shared wire schema)
+│   ├── sender.nim              (HTTP POST with retry/backoff, dependency-injected for testing)
+│   ├── scenarios.nim           (declarative scenario catalog — data only, no logic)
+│   ├── transform_lab.nim       (reversible XOR byte transformation — analysis only, no execution)
+│   ├── artifact_analysis.nim   (static string analysis of compiled binaries)
+│   ├── system_event_lab.nim    (synthetic process lifecycle: startup → init → load → exec → terminate)
+│   ├── behavior_lab.nim        (documented behavior catalog — expected signal, false positives, limitations)
+│   ├── correlation_lab.nim     (generates correlated event sequences, not isolated events)
+│   ├── signal_coverage.nim     (scenario → signal → telemetry → rule → detection coverage matrix)
+│   └── main.nim                (runner — executes every lab, optionally sends to the SIEM)
+└── tests/                      (81 unit + integration tests, incl. two real compiled fixture binaries)
+```
+
+`purple-team/nim-loaders/loader.nim` — a separate, single-file Nim script kept
+alongside the structured lab — demonstrates the underlying concept behind
+`transform_lab.nim`/`artifact_analysis.nim`: an innocuous command (`uname -a`) is
+XOR-obfuscated at compile time and decoded only at runtime, so static string
+analysis (`strings | grep`) finds nothing, while behavioral/process telemetry still
+observes the resulting `uname` process spawn. This is the practical illustration of
+why the detection rules below match on runtime behavior, not on file contents.
+
+### Detection rules
+
+Deliberately **no** detection rule exists for `transform`/`lifecycle`/`artifact`
+category events — representing or transforming a piece of test data in bytes is not
+by itself a signal. Only actual process-spawn behavior, and sequences of related
+events, are treated as detectable:
+
+|ID              |Name                                                      |Severity|MITRE|
+|-----------------|-----------------------------------------------------------|--------|-----|
+|PROC-001         |Discovery Utility Spawned by Unwhitelisted Process (Go)     |HIGH    |T1082|
+|PROC-002         |Discovery Utility Spawned by Expected Parent (Go)           |LOW     |T1082|
+|NIM-BEHAVIOR-001 |Discovery Utility Spawned by Unwhitelisted Parent (Nim)     |HIGH    |T1082|
+|NIM-BEHAVIOR-002 |Discovery Utility Spawned by Expected Parent (Nim)          |LOW     |T1082|
+|CORR-001         |System Discovery Following an Unknown-Parent Process        |MEDIUM  |T1082|
+
+`CORR-001` lives in `siem/correlation_rules.py`, a deliberately separate engine from
+`detector.py`'s per-event `RULES`: it evaluates a **sequence** of at least two related
+events (an unknown-parent process spawn, followed within a bounded time window by a
+discovery utility spawned from that same process) rather than a single isolated
+event — the signal comes from the chain, not from either event alone.
+
+### Data pipeline
+
+```mermaid
+flowchart TD
+    subgraph agents["Telemetry agents"]
+        GO["Go agent<br/>(real process monitoring via /proc)"]
+        NIM["Nim agent<br/>(synthetic, controlled scenarios)"]
+    end
+
+    GO -->|"ToIngressPayload()"| JSON1["JSON<br/>timestamp / source / category /<br/>event_type / message / fields"]
+    NIM -->|"buildGenericEvent()"| JSON2["JSON<br/>same schema, source: nim-agent"]
+
+    JSON1 --> HTTP["HTTP POST<br/>+ X-Agent-Token header<br/>(retry/backoff on 5xx, no retry on 4xx)"]
+    JSON2 --> HTTP
+
+    HTTP --> AUTH{"_check_agent_token()<br/>hmac.compare_digest"}
+    AUTH -->|"invalid/missing token"| REJECT["401 Unauthorized<br/>event dropped"]
+    AUTH -->|"valid token"| INGRESS["SIEM ingress<br/>/api/v1/ingress (app.py)"]
+
+    INGRESS --> NORM["Event normalization"]
+
+    NORM --> RULES["Per-event engine<br/>detector.py: RULES"]
+    NORM --> CORR["Correlation engine<br/>correlation_rules.py<br/>(separate, evaluates sequences)"]
+
+    RULES --> FALCO["falco_rules"]
+    RULES --> PROC["process_rules<br/>PROC-001 / PROC-002"]
+    RULES --> NIMRULES["nim_lab_rules<br/>NIM-BEHAVIOR-001 / 002"]
+
+    CORR --> CORR001["CORR-001<br/>unknown parent + discovery<br/>within time window"]
+
+    FALCO --> ALERT["Alert / SIEM Dashboard"]
+    PROC --> ALERT
+    NIMRULES --> ALERT
+    CORR001 --> ALERT
+
+    style REJECT fill:#4a1414,stroke:#e05252
+    style ALERT fill:#143d14,stroke:#52e052
+```
+
+### CI/CD pipeline (lab-specific jobs)
+
+```mermaid
+flowchart TD
+    PUSH["push to main / tag v*.*.*"] --> CI
+    PR["pull_request targeting main"] --> CI
+
+    CI["CI — Lint & Test"] --> PTL["Purple Team Lab<br/>Build & Behavioral Test<br/>(XOR Nim loader)"]
+    CI --> NPTL["Nim Purple Team Lab<br/>Build, Test & SIEM Integration<br/>(nimble build/test + HTTP round-trip)"]
+    CI --> BUILD["Build & Push Docker Images"]
+
+    BUILD --> DEPLOY{"push to main?"}
+    DEPLOY -->|"yes"| K3S["Deploy -> k3s via Helm"]
+    DEPLOY -->|"no, it's a PR"| SKIP1["Skipped"]
+
+    CI --> RELTAG{"tag v*.*.*?"}
+    RELTAG -->|"yes"| RELEASE["Release<br/>Cross-compile Go Agent<br/>(amd64/arm64 + checksum + GitHub Release)"]
+    RELTAG -->|"no"| SKIP2["Skipped"]
+
+    subgraph maintenance["Automated maintenance"]
+        DEP["Dependabot<br/>(monthly: github-actions, pip, docker, gomod)"]
+        DEP --> AUTOMERGE["dependabot-auto-merge<br/>(auto-merge on minor/patch,<br/>comment on major)"]
+        CANARY["Canary<br/>(scheduled rebuild every Monday 4:00 AM<br/>+ smoke test + automatic Issue on failure)"]
+    end
+
+    AUTOMERGE -.->|"PR merged"| PR
+
+    style SKIP1 fill:#3a3a3a,stroke:#888
+    style SKIP2 fill:#3a3a3a,stroke:#888
+    style K3S fill:#143d14,stroke:#52e052
+    style RELEASE fill:#143d14,stroke:#52e052
+```
+
+### Running it locally
+
+```bash
+# Integrate (idempotent — safe to re-run)
+chmod +x integrate_purple_team_lab.sh
+./integrate_purple_team_lab.sh
+
+# Python detection rule tests (process_rules, nim_lab_rules, correlation_rules)
+pytest tests/ -v
+
+# Go agent
+cd agent && go build ./...
+
+# Single-file Nim loader (XOR demo)
+cd purple-team/nim-loaders && nim c -d:release -o:loader_test loader.nim && ./loader_test
+
+# Structured Nim lab (builds + full 81-test suite)
+cd purple-team/nim && nimble build -y && nimble test -y
+```
+
+> [!NOTE]
+> Dependabot does not support the Nim/Nimble ecosystem — the lab has no external
+> Nimble dependencies today (standard library only), but if any are added later,
+> they will need to be updated manually.
 
 -----
 
@@ -422,6 +613,20 @@ Full walkthrough: `docs/API_V1_GUIDE.md`
 |ARC-013|Large Exfiltration Campaign                       |CRITICAL|T1048.003|
 |ARC-014|Exfiltration via Encrypted Channel                |CRITICAL|T1048.002|
 
+### Purple Team Lab Rules — Go Agent & Nim Lab (5)
+
+See [Purple Team Lab](#purple-team-lab--go-agent--structured-nim-lab) above for full
+details, including why `transform`/`lifecycle`/`artifact` category events
+deliberately have no matching rule.
+
+|ID              |Name                                                      |Severity|MITRE|
+|-----------------|-----------------------------------------------------------|--------|-----|
+|PROC-001         |Discovery Utility Spawned by Unwhitelisted Process (Go)     |HIGH    |T1082|
+|PROC-002         |Discovery Utility Spawned by Expected Parent (Go)           |LOW     |T1082|
+|NIM-BEHAVIOR-001 |Discovery Utility Spawned by Unwhitelisted Parent (Nim)     |HIGH    |T1082|
+|NIM-BEHAVIOR-002 |Discovery Utility Spawned by Expected Parent (Nim)          |LOW     |T1082|
+|CORR-001         |System Discovery Following an Unknown-Parent Process        |MEDIUM  |T1082|
+
 ### Cloud Rules — Azure VNet Flow Logs (7)
 
 |ID       |Name                              |Severity|MITRE    |
@@ -506,6 +711,7 @@ Edit `config.json`:
 |`SENTINEL_CLIENT_ID`             |—                                 |Service Principal client ID|
 |`SENTINEL_CLIENT_SECRET`         |—                                 |Service Principal secret   |
 |`SENTINEL_WORKSPACE_ID`          |—                                 |Log Analytics workspace ID |
+|`SIEM_AGENT_TOKEN`               |—                                 |Shared secret for the Go/Nim agent `X-Agent-Token` header |
 
 > config.json is excluded from version control via .gitignore. Never commit credentials.
 
@@ -531,10 +737,26 @@ Homelab_SIEM/
 ├── app.py
 ├── wsgi.py                             (Gunicorn entrypoint)
 ├── config.json                         (git-ignored)
+├── pytest.ini                          (pythonpath=. — required for bare `pytest` invocations in CI)
+├── integrate_purple_team_lab.sh        (idempotent integrator for agent/ + purple-team/ + detection rules + CI)
 ├── requirements.txt
 ├── simulate_logs.py
 ├── simulate_caldera.py
 ├── CHANGELOG.md
+├── agent/                               (Go telemetry agent — real /proc process monitoring)
+│   ├── go.mod
+│   ├── cmd/main.go
+│   └── pkg/
+│       ├── models/telemetry.go
+│       ├── collector/process.go
+│       └── sender/http.go
+├── purple-team/
+│   ├── nim-loaders/
+│   │   └── loader.nim                  (XOR-obfuscated command, static-vs-behavioral demo)
+│   └── nim/                            (structured Nim lab — see Purple Team Lab section)
+│       ├── nimble.nimble
+│       ├── src/                        (11 modules — models, telemetry, sender, scenarios, ...)
+│       └── tests/                      (81 tests, incl. 2 real compiled fixture binaries)
 ├── arachne/                            (ArachneC2 decentralized C2 simulator, Go)
 │   ├── Dockerfile
 │   ├── arachne.json
@@ -570,10 +792,13 @@ Homelab_SIEM/
 │   │       └── _helpers.tpl
 │   └── legacy-manifests/               (superseded static manifests, kept for reference)
 ├── .github/
+│   ├── dependabot.yml                  (monthly: github-actions, pip, docker, gomod)
 │   └── workflows/
-│       ├── ci-cd.yml                   (lint → build → push → Helm deploy → health check)
+│       ├── ci-cd-helm.yml              (lint → build → push → Helm deploy → health check; + Purple Team Lab / Nim Purple Team Lab jobs)
 │       ├── pr-check.yml                (lint + test on PR)
-│       └── oracle-vm-provisioner.yml   (idempotent OCI VM provisioning, A1/A2 fallback)
+│       ├── oracle-vm-provisioner.yml   (idempotent OCI VM provisioning, A1/A2 fallback)
+│       ├── dependabot-auto-merge.yml   (auto-merge minor/patch, comment on major)
+│       └── canary.yml                  (scheduled rebuild + smoke test + auto Issue on failure)
 ├── siem/
 │   ├── collector.py
 │   ├── detector.py
@@ -584,6 +809,9 @@ Homelab_SIEM/
 │   ├── caldera_parser.py
 │   ├── arachne_rules.py                (ARC-001 .. ARC-014)
 │   ├── falco_rules.py
+│   ├── process_rules.py                (PROC-001 / PROC-002 — Go agent)
+│   ├── nim_lab_rules.py                (NIM-BEHAVIOR-001 / 002 — Nim lab)
+│   ├── correlation_rules.py            (CORR-001 — separate, sequence-based engine)
 │   └── notifier.py
 ├── azure_siem/
 │   ├── __init__.py
@@ -618,6 +846,10 @@ Homelab_SIEM/
 ├── templates/
 │   ├── dashboard.html
 │   └── rules.html
+├── tests/
+│   ├── test_process_rules.py
+│   ├── test_nim_lab_rules.py
+│   └── test_correlation_rules.py
 ├── docs/
 │   ├── API_V1_GUIDE.md
 │   ├── BACKUP_AND_RECOVERY.md
@@ -656,6 +888,7 @@ so the fixes stay discoverable instead of buried in commit history.
 | `error getting credentials - err: exit status 1` on `docker buildx build --push` | `~/.docker/config.json` has `"credsStore": "desktop.exe"`, which WSL2 can't invoke | Remove the `credsStore` line, keep only `"auths": {"https://index.docker.io/v1/": {}}`, then `docker login` again |
 | Credential fix keeps reverting after each `docker login` | The CLI resets `credsStore` automatically when it detects Docker Desktop/WSL2 integration | Remove `credsStore` again after every fresh login, or use `docker login -u <user>` instead of the device-code flow |
 | Uncommitted local changes to `values.yaml`/chart templates vanish after a pipeline run | The CI/CD `git reset --hard origin/main` step wipes any file that's tracked by git but has unpushed local edits | Commit and push chart/workflow changes immediately after editing — never leave them staged-but-uncommitted between pipeline runs |
+| `ModuleNotFoundError: No module named 'siem'` when a CI job runs `pytest` (but not when run locally with `python3 -m pytest`) | Bare `pytest` does not add the repo root to `sys.path` the way `python3 -m pytest` does; without it, sibling packages like `siem/` aren't importable from `tests/` | Add a `pytest.ini` at the repo root with `[pytest]` / `pythonpath = .` — fixes every CI job uniformly, regardless of how each one invokes `pytest` |
 
 ### Kubernetes / Helm
 
@@ -681,6 +914,14 @@ so the fixes stay discoverable instead of buried in commit history.
 | SIEM pod crashes immediately on startup when Postgres and SIEM start at the same time | The connection pool was created eagerly at module import time, with no retry | Make the pool lazy (create on first real use) with retry/backoff |
 | Everything eventually hangs; `pg_stat_activity` shows many sessions stuck on `CREATE TABLE`, one `idle in transaction` for a long time | psycopg2 defaults to `autocommit=False` — a plain `SELECT` leaves an implicit transaction open, blocking later DDL from other threads/pods | Set `autocommit = True` on the connection right after acquiring it from the pool |
 | `KeyError: 0` on `fetchone()[0]` | `psycopg2.extras.RealDictCursor` returns dict-like rows, not tuples — positional indexing fails | Use named-column access (`SELECT COUNT(*) AS cnt ... fetchone()["cnt"]`) instead |
+
+### Nim / Purple Team Lab
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `nimble: command not found` after `apt-get install nim` | On some environments the `nim` package doesn't drop `nimble` in the same step (or `nim`/`nimble` aren't installed at all yet) | `sudo apt update && sudo apt install -y nim`, then verify with `which nim nimble` |
+| Compiled Nim binaries (`purple-team/nim/main`, `tests/test_*`, `tests/fixtures/plaintext_sample`, etc.) end up tracked in git after `git add -A` | No `.gitignore` entry for Nim build artifacts — `nimble build`/`nimble test` produce platform-specific executables alongside the `.nim` sources | `git rm --cached` the compiled binaries, then add `purple-team/nim/main`, `purple-team/nim/tests/test_*` (with a `!*.nim` exception) and `purple-team/nim/tests/fixtures/*` (same exception) to `.gitignore` |
+| `NIM-BEHAVIOR-001` never fires even though the rule and its unit tests are correct | The Nim lab runner sent only the aggregated `correlation.sequence_observed` event, never the individual `behavior` sub-events the per-event rule expects | `main.nim` now also emits each sequence sub-event standalone (in addition to the aggregated sequence), mirroring how the Go agent emits individual process events |
 
 ### General debugging tip
 
@@ -723,6 +964,14 @@ Please check out our [Contributing Guidelines](CONTRIBUTING.md) to see where we 
 - [x] Helm chart for parametrized distribution
 - [x] Prometheus + Grafana sidecar for K8s-native metrics
 - [x] PostgreSQL dual-backend support (implemented, opt-in, not yet activated in production)
+- [x] Go telemetry agent — real-time `/proc` process monitoring, HTTP delivery with retry/backoff
+- [x] Structured Nim purple-team lab — 11 modules, 81 tests, fully synthetic scenario generation
+- [x] Dedicated detection rules for Go/Nim telemetry (`PROC-*`, `NIM-BEHAVIOR-*`) and a
+      separate, sequence-based correlation engine (`CORR-*`)
+- [x] Dedicated CI job for the Nim lab — `nimble build`/`nimble test` plus a real HTTP
+      round-trip against a mock SIEM ingress
+- [x] `pytest.ini` for consistent module resolution across every CI job
+- [x] Dependabot switched to a monthly schedule to reduce PR noise
 - [ ] Activate PostgreSQL in production once multi-replica scaling is actually needed
 - [ ] Wazuh SIEM exploration (separate project/repo)
 
@@ -740,12 +989,16 @@ Please check out our [Contributing Guidelines](CONTRIBUTING.md) to see where we 
 - [Oracle Cloud Free Tier](https://www.oracle.com/cloud/free/)
 - [TryHackMe](https://tryhackme.com)
 - [Suricata Documentation](https://suricata.readthedocs.io)
+- [Nim Language Manual](https://nim-lang.org/docs/manual.html)
+- [Nimble Package Manager](https://github.com/nim-lang/nimble)
 
 -----
 
 ## Credits & Acknowledgements
 
 * **ArachneC2 Simulation:** The decentralized C2 implant simulation used in this project is based on and adapted from the amazing work by [portbuster1337](https://github.com/portbuster1337) on [ArachneC2](https://github.com/portbuster1337/ArachneC2). It has been integrated into this homelab to design, test, and validate the 14 application-level and eBPF/Falco detection rules.
+
+* **Nim Telemetry & Evasion Labs:** The compile-time XOR obfuscation concepts, runtime execution techniques, and synthetic process behaviors explored in the Nim Purple Team Lab are highly inspired by and adapted from the excellent open-source work by [Chaelsoo](https://github.com/Chaelsoo) on [nimcrypt](https://github.com/Chaelsoo/nimcrypt) and [Hollow](https://github.com/Chaelsoo/Hollow). These implementations were leveraged in a controlled environment to study static vs. behavioral analysis and to build robust detection logic for the SIEM's correlation engines.
 
 -----
 
