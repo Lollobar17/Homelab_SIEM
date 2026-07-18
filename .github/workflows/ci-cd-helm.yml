@@ -235,7 +235,7 @@ jobs:
 
       - name: Docker metadata (SIEM)
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
@@ -247,7 +247,7 @@ jobs:
 
       - name: Docker metadata (Falco collector)
         id: meta-collector
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.COLLECTOR_IMAGE_NAME }}
           tags: |
