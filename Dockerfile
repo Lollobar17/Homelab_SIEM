@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # ── Copy application code ─────────────────────────────────────────────────────
 COPY app.py .
 COPY wsgi.py .
-COPY simulate_logs.py .
+COPY scripts/simulate_logs.py .
 COPY siem/ ./siem/
 COPY azure_siem/ ./azure_siem/
 COPY templates/ ./templates/
