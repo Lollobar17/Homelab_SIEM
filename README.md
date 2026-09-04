@@ -260,13 +260,13 @@ Events are written to a JSONL log and shipped to the SIEM by
 > Responsible Use — ArachneC2 and all purple-team components in this repository are
 > strictly for educational and detection-engineering purposes.
 
-	•	Deploy and run these tools only in isolated, air-gapped, or dedicated lab environments that you own and control.
+- Deploy and run these tools only in isolated, air-gapped, or dedicated lab environments that you own and control.
 
-	•	Never expose ArachneC2 nodes, the Go agent, or any C2-related component on the public internet or on networks you do not have explicit written authorization to test.
+- Never expose ArachneC2 nodes, the Go agent, or any C2-related component on the public internet or on networks you do not have explicit written authorization to test.
 
-	•	The beaconing, exfiltration, and lateral-movement patterns simulated here are real TTPs (MITRE ATT&CK T1071, T1048, T1021). Deploying them outside a lab environment may violate computer fraud laws in your jurisdiction.
+- The beaconing, exfiltration, and lateral-movement patterns simulated here are real TTPs (MITRE ATT&CK T1071, T1048, T1021). Deploying them outside a lab environment may violate computer fraud laws in your jurisdiction.
 
-	•	The author accepts no liability for misuse. By using these components you agree that you take full responsibility for compliance with applicable laws and regulations.
+- The author accepts no liability for misuse. By using these components you agree that you take full responsibility for compliance with applicable laws and regulations.
 
 -----
 
