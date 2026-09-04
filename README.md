@@ -752,8 +752,8 @@ Homelab_SIEM/
 ├── pytest.ini                          (pythonpath=. — required for bare `pytest` invocations in CI)
 ├── integrate_purple_team_lab.sh        (idempotent integrator for agent/ + purple-team/ + detection rules + CI)
 ├── requirements.txt
-├── simulate_logs.py
-├── simulate_caldera.py
+├── simulate_logs.py                    (moved to /scripts for a better understanding of the structure of this project)              
+├── simulate_caldera.py                 (moved to /scripts for a better understanding of the structure of this project) 
 ├── CHANGELOG.md
 ├── agent/                               (Go telemetry agent — real /proc process monitoring)
 │   ├── go.mod
