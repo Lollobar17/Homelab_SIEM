@@ -1,0 +1,40 @@
+{
+  "_comment": "Copy this file to config.json and fill in your values. Never commit config.json — it is gitignored.",
+
+  "syslog_enabled": true,
+  "syslog_port": 5140,
+  "web_port": 5000,
+
+  "discord_webhook": "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN",
+
+  "SIEM_INGEST_URL": "http://localhost:5000/api/v1/ingress",
+  "SIEM_RETENTION_DAYS": 30,
+
+  "SIEM_DB_BACKEND": "sqlite",
+  "SIEM_DB_PATH": "data/siem.db",
+
+  "_comment_postgres": "Only required when SIEM_DB_BACKEND is set to 'postgres'",
+  "SIEM_POSTGRES_HOST": "localhost",
+  "SIEM_POSTGRES_PORT": 5432,
+  "SIEM_POSTGRES_DB": "siem",
+  "SIEM_POSTGRES_USER": "siem",
+  "SIEM_POSTGRES_PASSWORD": "REPLACE_WITH_STRONG_PASSWORD",
+
+  "_comment_agent": "Shared secret for the Go/Nim agent X-Agent-Token header",
+  "SIEM_AGENT_TOKEN": "REPLACE_WITH_RANDOM_SECRET",
+
+  "_comment_caldera": "Optional — only needed if running MITRE Caldera",
+  "CALDERA_URL": "http://127.0.0.1:8888",
+  "CALDERA_API_KEY": "REPLACE_WITH_CALDERA_API_KEY",
+  "CALDERA_POLL_INTERVAL": 120,
+
+  "_comment_azure": "Only required for Azure integration (Phase 1 — VNet Flow Logs)",
+  "AZURE_STORAGE_CONNECTION_STRING": "DefaultEndpointsProtocol=https;AccountName=YOUR_ACCOUNT;AccountKey=YOUR_KEY;EndpointSuffix=core.windows.net",
+  "AZURE_STORAGE_CONTAINER": "insights-logs-flowlogflowevent",
+
+  "_comment_sentinel": "Only required for Azure Sentinel integration (Phase 3)",
+  "SENTINEL_TENANT_ID": "YOUR_TENANT_ID",
+  "SENTINEL_CLIENT_ID": "YOUR_CLIENT_ID",
+  "SENTINEL_CLIENT_SECRET": "REPLACE_WITH_CLIENT_SECRET",
+  "SENTINEL_WORKSPACE_ID": "YOUR_WORKSPACE_ID"
+}
