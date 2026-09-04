@@ -1016,4 +1016,4 @@ Please check out our [Contributing Guidelines](CONTRIBUTING.md) to see where we 
 
 ## License
 
-MIT — use freely, learn a lot.
+MIT — use freely!
