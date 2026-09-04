@@ -15,7 +15,7 @@ WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
 
-COPY app.py simulate_logs.py requirements.txt ./
+COPY app.py scripts/simulate_logs.py requirements.txt ./
 COPY siem/ ./siem/
 COPY azure_siem/ ./azure_siem/
 COPY monitoring/ ./monitoring/
