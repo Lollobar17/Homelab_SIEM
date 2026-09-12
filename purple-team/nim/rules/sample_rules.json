@@ -1,0 +1,31 @@
+{
+  "blacklist": {
+    "exact": {
+      "srcIp": {
+        "185.220.101.1": "TRIAGE-known-tor-exit-node"
+      }
+    },
+    "patterns": [
+      { "pattern": "Failed password", "ruleId": "TRIAGE-ssh-failed-password" },
+      { "pattern": "union select", "ruleId": "TRIAGE-sqli-union-select" },
+      { "pattern": "/etc/passwd", "ruleId": "TRIAGE-path-traversal-passwd" },
+      { "pattern": "/wp-admin", "ruleId": "TRIAGE-wp-admin-scan" },
+      { "pattern": "Out of memory", "ruleId": "TRIAGE-oom-killer" }
+    ]
+  },
+  "whitelist": {
+    "exact": {
+      "path": {
+        "/api/health": "TRIAGE-known-healthcheck",
+        "/metrics": "TRIAGE-known-prometheus-scrape",
+        "/favicon.ico": "TRIAGE-known-favicon"
+      },
+      "srcIp": {
+        "127.0.0.1": "TRIAGE-localhost"
+      }
+    },
+    "patterns": [
+      { "pattern": "Accepted publickey for", "ruleId": "TRIAGE-known-good-ssh-login" }
+    ]
+  }
+}

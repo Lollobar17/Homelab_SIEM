@@ -244,6 +244,23 @@ RULES = [
         ) >= 3,
     },
 
+    # G-08: Direct root console/tty login, bypassing sudo's per-command
+    # accountability — closes the gap where AUTH-002/003/006 only look at
+    # sshd-reported logins, missing PAM's local "ROOT LOGIN on '/dev/ttyN'".
+    {
+        "id": "AUTH-007",
+        "name": "Direct Root Console Login",
+        "description": "A direct root login occurred via local console/terminal rather than through sudo.",
+        "severity": "HIGH",
+        "category": "auth",
+        "mitre": "T1078.003",
+        "match": lambda e: (
+            e.get("category") == "auth"
+            and "root login" in e.get("fields", {}).get("message", "").lower()
+        ),
+        "threshold": None,
+    },
+
     # ── Web ───────────────────────────────────────────────────────────────
 
     {

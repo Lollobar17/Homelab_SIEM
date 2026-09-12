@@ -3,7 +3,7 @@ author        = "Lorenzo"
 description   = "Laboratorio didattico Nim per il Purple Team/SIEM lab (Homelab_SIEM)"
 license       = "MIT"
 srcDir        = "src"
-bin           = @["main"]
+bin           = @["main", "log_tracer"]
 
 requires "nim >= 1.6.0"
 # Nessuna dipendenza esterna: tutto il laboratorio usa solo la libreria
@@ -26,3 +26,5 @@ task test, "Compila ed esegue l'intera suite di test del laboratorio":
   exec "nim c -r --hints:off tests/test_behavior_lab.nim"
   exec "nim c -r --hints:off tests/test_correlation_lab.nim"
   exec "nim c -r --hints:off tests/test_signal_coverage.nim"
+  exec "nim c -r --hints:off tests/test_log_ingest.nim"
+  exec "nim c -r --hints:off tests/test_triage_matcher.nim"

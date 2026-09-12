@@ -17,3 +17,4 @@ purple-team/nim/tests/test_*
 !purple-team/nim/tests/test_*.nim
 purple-team/nim/tests/fixtures/*
 !purple-team/nim/tests/fixtures/*.nim
+purple-team/nim/bin/

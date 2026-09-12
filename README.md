@@ -61,6 +61,7 @@ and an optional **PostgreSQL** backend for horizontal scaling.
 |-----------------------|-------------------------------------------------------------------------|
 |**Log Collection**     |Tails local files + listens on UDP syslog (port 5140)                    |
 |**Log Parsing**        |SSH/auth, Apache/Nginx, Flask/Werkzeug, kernel/dmesg, syslog             |
+|**Log Triage**         |Nim whitelist/blacklist pre-filter — drops known-good noise before it reaches the rule engine |
 |**Threat Detection**   |Rule engine mapped to MITRE ATT&CK — on-premise, cloud, purple-team and runtime rules |
 |**Runtime Security**   |Falco (eBPF) — kernel-level syscall monitoring, custom C2 detection rules |
 |**Purple Team**        |Caldera sidecar (5 rules) + ArachneC2 decentralized C2 simulator (14 rules) + a Go/Nim telemetry lab (5 rules) |
@@ -213,6 +214,11 @@ GitHub Environment requires manual approval before every deploy.
 See [Purple Team Lab](#purple-team-lab--go-agent--structured-nim-lab) below for the
 two additional CI jobs (`Purple Team Lab`, `Nim Purple Team Lab`) that build and test
 the Go agent and the Nim lab on every push and pull request.
+
+> [!NOTE]
+> Infrastructure provisioning is currently handled via OCI CLI + GitHub Actions.
+> Terraform and Ansible are planned as a future migration to adopt
+> industry-standard IaC tooling.
 
 -----
 
@@ -422,6 +428,64 @@ flowchart TD
     style RELEASE fill:#143d14,stroke:#52e052
 ```
 
+### Log Tracer — Whitelist/Blacklist Pre-Filter
+
+`purple-team/nim/` also hosts a second, production-facing Nim binary alongside the
+didactic lab above: a fast, dependency-free log-triage stage that sits in front of
+`/api/v1/ingress`, reusing `sender.nim` and `models.nim` unchanged. Where the rest of
+this section generates synthetic telemetry to study detection concepts, `log_tracer`
+processes **real** log lines — the same shapes `siem/collector.py` already tails
+(SSH/`auth.log`, Apache/Nginx/Flask, kernel `dmesg`, syslog, journald, Suricata
+`eve.json`) — and classifies each one before it ever reaches the rule engine or the
+database:
+
+|Verdict|Action|
+|-------|------|
+|**Whitelisted**|Dropped — known-good noise (health checks, routine cron/session bookkeeping, daemon startup chatter) never costs an `analyze_event()` pass or a SQLite write|
+|**Blacklisted**|Forwarded, tagged with a `TRIAGE-*` reference ID for fast triage|
+|**Unknown**|Forwarded unchanged — `detector.py`'s stateful rules (e.g. `AUTH-001`'s brute-force counting) still need every real event|
+
+```
+purple-team/nim/
+├── src/
+│   ├── log_ingest.nim       (raw line -> ParsedEvent: auth/web/kernel/syslog/journald/suricata)
+│   ├── triage_matcher.nim   (whitelist/blacklist engine — hash-set exact match + Aho-Corasick)
+│   └── log_tracer.nim       (CLI entry point, batches events to /api/v1/ingress via sender.nim)
+├── rules/
+│   ├── sample_rules.json               (worked example: brute-force, SQLi, path traversal, ...)
+│   └── homelab_calibrated_rules.json   (rules tuned against this project's own auth.log)
+└── tests/
+    ├── test_log_ingest.nim     (12 tests)
+    └── test_triage_matcher.nim (5 tests)
+```
+
+Calibrated against this project's own WSL2 `auth.log`, the whitelist alone drops
+roughly **70% of routine traffic** (35 of 49 events in one sample run) — `CRON`
+session bookkeeping, `polkitd` startup chatter, PAM module warnings — while every
+`sudo` command, direct root session, and login attempt stays fully visible to
+`detector.py`.
+
+Calibrating the rules against real traffic surfaced an actual detection gap:
+direct root logins via local console/tty (PAM's `ROOT LOGIN on '/dev/ttyN'`) were
+invisible to every existing `AUTH-*` rule, which only look at `sshd`-reported
+logins. `log_ingest.nim` now categorizes `login`-sourced PAM lines as `auth` (not
+`syslog`), and **`AUTH-007` (Direct Root Console Login, T1078.003)** — see
+[Detection Rules](#detection-rules) — closes it SIEM-side.
+
+![log_tracer whitelist/blacklist pre-filter running against real auth.log traffic](docs/assets/demo_log_tracer.gif)
+
+*`log_tracer` reading real `auth.log` lines, classifying them against the
+calibrated rules, and forwarding the result to `/api/v1/ingress` — followed by a
+live confirmation that `AUTH-007` fires on a direct root console login.*
+
+![AUTH-007 alert in the SIEM dashboard](docs/assets/auth007_dashboard.png)
+
+*`AUTH-007 — Direct Root Console Login` (`HIGH`, T1078.003) as it appears in the
+dashboard after the run above.*
+
+See [`docs/LOG_TRACER_GUIDE.md`](docs/LOG_TRACER_GUIDE.md) for the full integration
+guide, rule format, and forwarded event schema.
+
 ### Running it locally
 
 ```bash
@@ -440,6 +504,10 @@ cd purple-team/nim-loaders && nim c -d:release -o:loader_test loader.nim && ./lo
 
 # Structured Nim lab (builds + full 81-test suite)
 cd purple-team/nim && nimble build -y && nimble test -y
+
+# Log tracer (whitelist/blacklist pre-filter)
+cd purple-team/nim && nim c -d:release -o:bin/log_tracer src/log_tracer.nim
+sudo tail -n 200 /var/log/auth.log | ./bin/log_tracer --rules=rules/homelab_calibrated_rules.json --source=auth.log --url=http://localhost:5000/api/v1/ingress
 ```
 
 > [!NOTE]
@@ -586,6 +654,7 @@ Full walkthrough: `docs/API_V1_GUIDE.md`
 |AUTH-004|Sudo Privilege Escalation         |MEDIUM  |T1548.003|
 |AUTH-005|SSH Brute Force — High Volume     |CRITICAL|T1110    |
 |AUTH-006|Successful Login After Failures   |CRITICAL|T1110    |
+|AUTH-007|Direct Root Console Login          |HIGH    |T1078.003|
 |WEB-001 |HTTP Scanner / Directory Traversal|MEDIUM  |T1083    |
 |WEB-002 |Web Brute Force (4xx Flood)       |MEDIUM  |T1110    |
 |WEB-003 |SQL Injection Attempt             |HIGH    |T1190    |

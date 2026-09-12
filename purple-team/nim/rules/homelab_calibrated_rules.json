@@ -1,0 +1,50 @@
+{
+  "blacklist": {
+    "exact": {
+      "srcIp": {
+        "185.220.101.1": "TRIAGE-known-tor-exit-node"
+      }
+    },
+    "patterns": [
+      { "pattern": "Failed password", "ruleId": "TRIAGE-ssh-failed-password" },
+      { "pattern": "ROOT LOGIN", "ruleId": "TRIAGE-direct-root-console-login" },
+      { "pattern": "union select", "ruleId": "TRIAGE-sqli-union-select" },
+      { "pattern": "/etc/passwd", "ruleId": "TRIAGE-path-traversal-passwd" },
+      { "pattern": "/wp-admin", "ruleId": "TRIAGE-wp-admin-scan" },
+      { "pattern": "Out of memory", "ruleId": "TRIAGE-oom-killer" }
+    ]
+  },
+  "whitelist": {
+    "exact": {
+      "path": {
+        "/api/health": "TRIAGE-known-healthcheck",
+        "/metrics": "TRIAGE-known-prometheus-scrape",
+        "/favicon.ico": "TRIAGE-known-favicon"
+      },
+      "srcIp": {
+        "127.0.0.1": "TRIAGE-localhost"
+      }
+    },
+    "patterns": [
+      { "pattern": "Accepted publickey for", "ruleId": "TRIAGE-known-good-ssh-login" },
+
+      { "pattern": "pam_unix(cron:session): session opened for user root", "ruleId": "TRIAGE-cron-session-noise" },
+      { "pattern": "pam_unix(cron:session): session closed for user root", "ruleId": "TRIAGE-cron-session-noise" },
+
+      { "pattern": "pam_unix(sudo:session): session opened", "ruleId": "TRIAGE-sudo-session-noise" },
+      { "pattern": "pam_unix(sudo:session): session closed", "ruleId": "TRIAGE-sudo-session-noise" },
+
+      { "pattern": "pam_unix(login:session): session opened for user ubuntu", "ruleId": "TRIAGE-known-user-login-session" },
+      { "pattern": "pam_unix(systemd-user:session): session opened for user ubuntu", "ruleId": "TRIAGE-known-user-systemd-session" },
+
+      { "pattern": "PAM adding faulty module: pam_lastlog.so", "ruleId": "TRIAGE-pam-lastlog-quirk" },
+      { "pattern": "PAM unable to dlopen(pam_lastlog.so)", "ruleId": "TRIAGE-pam-lastlog-quirk" },
+
+      { "pattern": "Acquired the name org.freedesktop.PolicyKit1", "ruleId": "TRIAGE-polkitd-startup-noise" },
+      { "pattern": "Finished loading, compiling and executing", "ruleId": "TRIAGE-polkitd-startup-noise" },
+      { "pattern": "Loading rules from directory", "ruleId": "TRIAGE-polkitd-startup-noise" },
+
+      { "pattern": "New seat seat0.", "ruleId": "TRIAGE-logind-seat-noise" }
+    ]
+  }
+}

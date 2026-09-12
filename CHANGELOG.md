@@ -5,6 +5,53 @@ This project follows [Keep a Changelog](https://keepachangelog.com) conventions.
 
 -----
 
+## [3.2.0] - 2026-09-08
+
+> Adds a fast, dependency-free log-triage pre-filter in Nim ahead of the ingest
+> pipeline, and closes a real detection gap it surfaced while being calibrated
+> against this project's own traffic.
+
+### Added — Log Tracer (Whitelist/Blacklist Pre-Filter)
+
+- **`purple-team/nim/src/log_ingest.nim`** — parses raw log lines into the same
+  shapes `siem/collector.py` already tails (SSH/`auth.log`, Apache/Nginx/Flask,
+  kernel `dmesg`, syslog with `<priority>`, journald-exported ISO8601 timestamps,
+  Suricata `eve.json`), regex-free for zero runtime dependencies.
+- **`purple-team/nim/src/triage_matcher.nim`** — whitelist/blacklist engine: O(1)
+  hash-set lookups for exact fields (`srcIp`/`process`/`path`), and a hand-rolled
+  Aho-Corasick automaton for free-text `message` matching, so thousands of
+  blacklist substrings cost one pass over the text regardless of count.
+- **`purple-team/nim/src/log_tracer.nim`** — CLI entry point; reuses `sender.nim`
+  and `models.nim` unchanged, batches classified events to `POST /api/v1/ingress`
+  with `detect: true` so `detector.py`'s stateful rules still see every
+  non-whitelisted event.
+- **`purple-team/nim/rules/homelab_calibrated_rules.json`** — rules tuned against
+  this project's own WSL2 `auth.log`, not generic examples: drops ~70% of routine
+  traffic (`CRON`/`sudo`/`login` session bookkeeping, `polkitd` startup chatter,
+  known PAM warnings) while keeping every command execution and root session
+  fully visible.
+- **`docs/LOG_TRACER_GUIDE.md`** — community-facing integration guide, following
+  the same format as `API_V1_GUIDE.md`/`SYSLOG_GUIDE.md`.
+- 17 new unit tests (`test_log_ingest.nim`, `test_triage_matcher.nim`), on top of
+  the existing 81-test purple-team lab suite.
+- Two idempotent, self-contained bash integrators (not kept in the repo, same
+  convention as `integrate_purple_team_lab.sh`): one wires the new Nim files and
+  `nimble.nimble` targets into place, the other patches `siem/detector.py`.
+
+### Added — AUTH-007 (Direct Root Console Login)
+
+- Calibrating the log tracer's rules against real traffic surfaced a detection
+  gap: direct root logins via local console/tty (PAM's `ROOT LOGIN on
+  '/dev/ttyN'`) were invisible to every existing `AUTH-*` rule, all of which only
+  match `sshd`-reported logins.
+- `log_ingest.nim` now categorizes `login`-sourced PAM lines as `category: auth`
+  instead of `syslog`.
+- **`AUTH-007`** (`siem/detector.py`) — new rule, severity `HIGH`, MITRE
+  `T1078.003` — fires on direct root console logins. Verified end-to-end against
+  a live instance: synthetic `ROOT LOGIN` event → `AUTH-007` alert generated.
+
+-----
+
 ## [3.1.0] - 2026-07-18
 
 > Adds a didactic purple-team lab built around two lightweight telemetry agents —
