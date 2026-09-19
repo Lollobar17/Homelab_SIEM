@@ -25,6 +25,19 @@ and an optional **PostgreSQL** backend for horizontal scaling.
 
 -----
 
+## TL;DR
+
+A self-hosted SIEM built from scratch and deployed cloud-natively on Kubernetes (k3s / Oracle Cloud OCI).
+
+- **Detection pipeline** — log collection → Nim pre-filter (drops ~70% noise) → MITRE-mapped rule engine → correlation engine (sequence-based, separate from per-event rules) → SQLite/PostgreSQL storage → live dashboard + Discord alerts
+- **Purple team coverage** — ArachneC2 (decentralized C2, 14 rules), MITRE Caldera (5 rules), Go process telemetry agent (real `/proc` monitoring), Nim synthetic scenario lab (81 tests)
+- **Runtime security** — Falco eBPF for kernel-level syscall monitoring, independent of the application-layer rules
+- **Cloud integration** — Azure VNet Flow Logs, Activity Log, Microsoft Sentinel (21 cloud rules across 3 phases)
+- **Production infra** — parametrized Helm chart, GitHub Actions CI/CD with auto-rollback, Prometheus + Grafana, HPA, NetworkPolicy (default-deny)
+- **Validated** — 100% detection rate across 4 structured attack scenarios (Nmap, Hydra, SQLmap, path traversal); AUTH-007 discovered and closed via real traffic calibration
+
+-----
+
 > **Note to the community:** Want to know *why* this project exists, the architectural choices made, and the failures encountered along the way? Please read the [SOUL.md](SOUL.md) file. It's the most important document in this repository.
 
 -----
